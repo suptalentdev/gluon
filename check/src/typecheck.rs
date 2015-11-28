@@ -153,7 +153,7 @@ impl TypeEnv for TypeInfos {
         self.id_to_type.iter()
             .find(|&(_, &(_, ref typ))| {
                 match **typ {
-                    Type::Record(ref record_fields) => {
+                    Type::Record { fields: ref record_fields, .. } => {
                         fields.iter().all(|&name| record_fields.iter().any(|f| f.name == name))
                     }
                     _ => false
@@ -527,7 +527,7 @@ impl <'a> Typecheck<'a> {
                             _id.typ = self.finish_type(level, _id.typ.clone());
                             debug!("{}: {}", _id.name, _id.typ);
                         }
-                        ast::Pattern::Record(_) => debug!("{{ .. }}: {}", bind.expression.type_of()),
+                        ast::Pattern::Record { .. } => debug!("{{ .. }}: {}", bind.expression.type_of()),
                         ast::Pattern::Constructor(ref _id, _) => debug!("{}: {}", _id.name, bind.expression.type_of())
                     }
                 }
@@ -573,7 +573,7 @@ impl <'a> Typecheck<'a> {
                     _ => typ.clone()
                 };
                 match *record {
-                    Type::Record(ref fields) => {
+                    Type::Record { ref fields, .. } => {
                         let field_type = fields.iter()
                             .find(|field| field.name == *field_access.id())
                             .map(|field| field.typ.clone());
@@ -697,7 +697,20 @@ impl <'a> Typecheck<'a> {
                 let expr_type = try!(self.typecheck(&mut **expr));
                 Ok(expr_type)
             }
-            ast::Expr::Record(ref mut id, ref mut fields) => {
+            ast::Expr::Record { typ: ref mut id, ref mut types, exprs: ref mut fields } => {
+                let types = try!(types.iter_mut()
+                    .map(|tup| {
+                        let (generics, typ) = try!(self.find_type_info(&tup.0));
+                        let typ = match typ {
+                            Some(typ) => typ.clone(),
+                            None => {
+                                let gs = generics.iter().map(|g| Type::generic(g.clone())).collect();
+                                Type::data(ast::TypeConstructor::Data(tup.0), gs)
+                            }
+                        };
+                        Ok(ast::Field { name: typ.clone(), typ: typ.clone() })
+                    })
+                    .collect::<Result<Vec<_>, TypeError>>());
                 let fields = try!(fields.iter_mut()
                     .map(|field| {
                         match field.1 {
@@ -710,13 +723,13 @@ impl <'a> Typecheck<'a> {
                                                   .map(|t| (t.0.clone(), t.1.clone())) {
                     Ok(x) => x,
                     Err(_) => {
-                        id.typ = Type::record(fields);
+                        id.typ = Type::record(types.clone(), fields);
                         return Ok(id.typ.clone());
                     }
                 };
                 let id_type = self.inst.instantiate(&id_type);
                 let record_type = self.inst.instantiate_(&record_type);
-                try!(self.unify(&Type::record(fields), record_type));
+                try!(self.unify(&Type::record(types, fields), record_type));
                 id.typ = id_type.clone();
                 Ok(id_type.clone())
             }
@@ -752,12 +765,12 @@ impl <'a> Typecheck<'a> {
                 let return_type = try!(self.typecheck_pattern_rec(args, ctor_type));
                 self.unify(&match_type, return_type)
             }
-            ast::Pattern::Record(ref record) => {
+            ast::Pattern::Record { types: ref associated_types, ref fields } => {
                 let mut match_type = self.remove_alias(match_type);
                 let mut types = Vec::new();
                 let new_type = match *match_type {
-                    Type::Record(ref expected_fields) => {
-                        for pattern_field in record {
+                    Type::Record { types: ref associated, fields: ref expected_fields } => {
+                        for pattern_field in fields {
                             let expected_field = try!(expected_fields.iter()
                                 .find(|expected_field| pattern_field.0 == expected_field.name)
                                 .ok_or(UndefinedField(match_type.clone(), pattern_field.0)));
@@ -768,20 +781,21 @@ impl <'a> Typecheck<'a> {
                         None
                     }
                     _ => {
-                        let fields: Vec<_> = record.iter().map(|t| t.0).collect();
+                        let fields: Vec<_> = fields.iter().map(|t| t.0).collect();
                         //actual_type is the record (not hidden behind an alias)
                         let (mut typ, mut actual_type) = match self.find_record(&fields)
                                 .map(|t| (t.0.clone(), t.1.clone())) {
                             Ok(typ) => typ,
                             Err(_) => {
-                                let t = Type::record(record.iter()
+                                let fields = fields.iter()
                                     .map(|field|
                                         ast::Field {
-                                            name: field.0,
+                                            name: *field,
                                             typ: self.inst.subs.new_var()
                                         }
                                     )
-                                    .collect());
+                                    .collect();
+                                let t = Type::record(Vec::new(), fields);
                                 (t.clone(), t)
                             }
                         };
@@ -789,7 +803,7 @@ impl <'a> Typecheck<'a> {
                         actual_type = self.inst.instantiate_(&actual_type);
                         try!(self.unify(&match_type, typ));
                         match *actual_type {
-                            Type::Record(ref record_types) => {
+                            Type::Record { types: ref associated, fields: ref record_types } => {
                                 types.extend(record_types.iter().map(|f| f.typ.clone()));
                             }
                             _ => panic!("Expected record found {}", match_type)
@@ -798,7 +812,7 @@ impl <'a> Typecheck<'a> {
                     }
                 };
                 match_type = new_type.unwrap_or(match_type);
-                for (field, field_type) in record.iter().zip(types) {
+                for (field, field_type) in fields.iter().zip(types) {
                     let (mut name, ref bind) = *field;
                     if let Some(bind_name) = *bind {
                         name = bind_name;
@@ -892,7 +906,8 @@ impl <'a> Typecheck<'a> {
                 }
                 Ok(())
             }
-            (&Type::Record(ref l_args), &Type::Record(ref r_args))
+            (&Type::Record { types: ref l_types, fields: ref l_args },
+             &Type::Record { types: ref r_types, fields: ref r_args })
                 if l_args.len() == r_args.len() => {
 
                 for (l, r) in l_args.iter().zip(r_args.iter()) {
@@ -1283,7 +1298,11 @@ pub fn walk_real_type<F>(subs: &Substitution<TcType>, typ: &TcType, f: &mut F)
             }
             walk_real_type(subs, ret, f);
         }
-        Type::Record(ref fields) => {
+        Type::Record { ref types, ref fields } => {
+            for field in types {
+                walk_real_type(subs, &field.name, f);
+                walk_real_type(subs, &field.typ, f);
+            }
             for field in fields {
                 walk_real_type(subs, &field.typ, f);
             }
