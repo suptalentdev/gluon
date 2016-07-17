@@ -1,33 +1,16 @@
-let { Applicative, Functor, Monad } = import "std/prelude.glu"
+let { Monad } = import "std/prelude.glu"
 
 type State s a = s -> { value: a, state: s }
 
-let functor : Functor (State s) =
-    let map f m : (a -> b) -> State s a -> State s b =
-        \state ->
-            let { value, state } = m state
-            { value = f value, state = state  }
+let (>>=) m f: State s a -> (a -> State s b) -> State s b =
+    \state ->
+        let { value, state } = m state
+        and m2 = f value
+        m2 state
 
-    { map }
+let return value: a -> State s a = \state -> { value, state }
 
-let applicative : Applicative (State s) =
-    let (<*>) mf state : State s (a -> b) -> State s a -> State s b =
-        let { value, state } = mf state
-        functor.map value state
-
-    let pure value: a -> State s a =
-        \state -> { value, state }
-
-    { (<*>), pure }
-
-let monad: Monad (State s) =
-    let (>>=) m f: State s a -> (a -> State s b) -> State s b =
-        \state ->
-            let { value, state } = m state
-            and m2 = f value
-            m2 state
-
-    { (>>=), return = applicative.pure }
+let monad: Monad (State s) = { (>>=), return }
 
 let put value: s -> State s () = \state -> { value = (), state = value }
 
@@ -43,4 +26,4 @@ let evalState f state: State s a -> s -> a = (runState f state).value
 
 let execState f state: State s a -> s -> s = (runState f state).state
 
-{ State, applicative, functor, monad, put, get, modify, runState, evalState, execState }
+{ State, monad, put, get, modify, runState, evalState, execState }
