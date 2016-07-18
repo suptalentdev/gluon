@@ -1,5 +1,4 @@
 //! A map data type which allows the same key to exist at multiple scope levels
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::hash_map;
 use std::collections::hash_map::{Entry, IterMut};
@@ -76,18 +75,12 @@ impl<K: Eq + Hash + Clone, V> ScopedMap<K, V> {
     }
 
     /// Returns a reference to the last inserted value corresponding to the key
-    pub fn get<'a, Q: ?Sized>(&'a self, k: &Q) -> Option<&'a V>
-    where K: Borrow<Q>,
-          Q: Eq + Hash
-    {
+    pub fn get<'a>(&'a self, k: &K) -> Option<&'a V> {
         self.map.get(k).and_then(|x| x.last())
     }
 
     /// Returns a reference to the all inserted value corresponding to the key
-    pub fn get_all<'a, Q: ?Sized>(&'a self, k: &Q) -> Option<&'a [V]>
-    where K: Borrow<Q>,
-          Q: Eq + Hash
-    {
+    pub fn get_all<'a>(&'a self, k: &K) -> Option<&'a [V]> {
         self.map.get(k).map(|x| &x[..])
     }
 
