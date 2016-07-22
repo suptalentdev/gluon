@@ -25,12 +25,8 @@ pub struct KindCheck<'a> {
     info: &'a (KindEnv + 'a),
     idents: &'a (ast::IdentEnv<Ident = Symbol> + 'a),
     pub subs: Substitution<RcKind>,
-    /// A cached star kind, `*`
-    star_kind: RcKind,
-    /// A cached one argument kind function, `* -> *`
-    function1_kind: RcKind,
-    /// A cached two argument kind function, `* -> * -> *`
-    function2_kind: RcKind,
+    star: RcKind,
+    arrow_kind: RcKind,
 }
 
 fn walk_move_kind<F>(kind: RcKind, f: &mut F) -> RcKind
@@ -75,9 +71,8 @@ impl<'a> KindCheck<'a> {
             info: info,
             idents: idents,
             subs: subs,
-            star_kind: star.clone(),
-            function1_kind: Kind::function(star.clone(), star.clone()),
-            function2_kind: Kind::function(star.clone(), Kind::function(star.clone(), star)),
+            star: star.clone(),
+            arrow_kind: Kind::function(star.clone(), Kind::function(star.clone(), star)),
         }
     }
 
@@ -90,16 +85,8 @@ impl<'a> KindCheck<'a> {
         self.variables.extend(variables.iter().cloned());
     }
 
-    pub fn star_kind(&self) -> RcKind {
-        self.star_kind.clone()
-    }
-
-    pub fn function1_kind(&self) -> RcKind {
-        self.function1_kind.clone()
-    }
-
-    pub fn function2_kind(&self) -> RcKind {
-        self.function2_kind.clone()
+    pub fn star(&self) -> RcKind {
+        self.star.clone()
     }
 
     fn find(&mut self, id: &Symbol) -> Result<RcKind> {
@@ -137,24 +124,11 @@ impl<'a> KindCheck<'a> {
     pub fn kindcheck_type(&mut self, typ: &mut TcType) -> Result<RcKind> {
         debug!("Kindcheck {:?}", typ);
         let (kind, t) = try!(self.kindcheck(typ));
-        let star = self.star_kind();
+        let star = self.star.clone();
         let kind = try!(self.unify(&star, kind));
         *typ = self.finalize_type(t);
         debug!("Done {:?}", typ);
         Ok(kind)
-    }
-
-    fn builtin_kind(&self, typ: BuiltinType) -> RcKind {
-        match typ {
-            BuiltinType::String |
-            BuiltinType::Byte |
-            BuiltinType::Char |
-            BuiltinType::Int |
-            BuiltinType::Float |
-            BuiltinType::Unit => self.star_kind(),
-            BuiltinType::Array => self.function1_kind(),
-            BuiltinType::Function => self.function2_kind(),
-        }
     }
 
     fn kindcheck(&mut self, typ: &TcType) -> Result<(RcKind, TcType)> {
@@ -165,7 +139,14 @@ impl<'a> KindCheck<'a> {
                 Ok((gen.kind.clone(), Type::generic(gen)))
             }
             Type::Variable(_) => panic!("kindcheck called on variable"),
-            Type::Builtin(builtin_typ) => Ok((self.builtin_kind(builtin_typ), typ.clone())),
+            Type::Builtin(BuiltinType::Function) => Ok((self.arrow_kind.clone(), typ.clone())),
+            Type::Builtin(_) => Ok((self.star.clone(), typ.clone())),
+            Type::Array(ref typ) => {
+                let (kind, typ) = try!(self.kindcheck(typ));
+                let star = self.star.clone();
+                try!(self.unify(&star, kind));
+                Ok((self.star.clone(), Type::array(typ)))
+            }
             Type::App(ref ctor, ref args) => {
                 let (mut kind, ctor) = try!(self.kindcheck(ctor));
                 let mut new_args = Vec::new();
@@ -180,7 +161,8 @@ impl<'a> KindCheck<'a> {
                             ret.clone()
                         }
                         _ => {
-                            return Err(UnifyError::TypeMismatch(self.function1_kind(),
+                            return Err(UnifyError::TypeMismatch(Kind::function(self.star(),
+                                                                               self.star()),
                                                                 kind.clone()))
                         }
                     };
@@ -191,18 +173,18 @@ impl<'a> KindCheck<'a> {
                 let variants = try!(variants.iter()
                     .map(|variant| {
                         let (kind, typ) = try!(self.kindcheck(&variant.1));
-                        let star = self.star_kind();
+                        let star = self.star.clone();
                         try!(self.unify(&star, kind));
                         Ok((variant.0.clone(), typ))
                     })
                     .collect());
-                Ok((self.star_kind(), Type::variants(variants)))
+                Ok((self.star.clone(), Type::variants(variants)))
             }
             Type::Record { ref types, ref fields } => {
                 let fields = try!(fields.iter()
                     .map(|field| {
                         let (kind, typ) = try!(self.kindcheck(&field.typ));
-                        let star = self.star_kind();
+                        let star = self.star.clone();
                         try!(self.unify(&star, kind));
                         Ok(types::Field {
                             name: field.name.clone(),
@@ -210,7 +192,7 @@ impl<'a> KindCheck<'a> {
                         })
                     })
                     .collect());
-                Ok((self.star_kind(), Type::record(types.clone(), fields)))
+                Ok((self.star.clone(), Type::record(types.clone(), fields)))
             }
             Type::Id(ref id) => self.find(id).map(|kind| (kind, typ.clone())),
             Type::Alias(ref alias) => self.find(&alias.name).map(|kind| (kind, typ.clone())),
@@ -232,7 +214,7 @@ impl<'a> KindCheck<'a> {
     }
 
     pub fn finalize_type(&self, typ: TcType) -> TcType {
-        let default = Some(&self.star_kind);
+        let default = Some(&self.star);
         types::walk_move_type(typ,
                               &mut |typ| {
             match *typ {
@@ -251,7 +233,7 @@ impl<'a> KindCheck<'a> {
     }
     pub fn finalize_generic(&self, var: &Generic<Symbol>) -> Generic<Symbol> {
         let mut kind = var.kind.clone();
-        kind = update_kind(&self.subs, kind, Some(&self.star_kind));
+        kind = update_kind(&self.subs, kind, Some(&self.star));
         types::Generic {
             id: var.id.clone(),
             kind: kind,
