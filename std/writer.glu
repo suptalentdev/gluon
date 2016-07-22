@@ -1,49 +1,36 @@
-let prelude = import "std/prelude.glu"
-let { Applicative, Functor, Monad, Monoid } = prelude
+let { Applicative, Functor, Monad, Monoid } = import "std/prelude.glu"
 
-type Writer w a = {
-    value : a,
-    writer : w
-}
+type Writer w a = { value: a, writer: w }
 
-type Impl w = {
-    functor : Functor (Writer w),
-    applicative : Applicative (Writer w),
-    monad : Monad (Writer w)
-}
+let make_Functor w: Monoid w -> Functor (Writer w) =
+    let { (<>) } = w
 
-let make w : Monoid w -> Impl w =
-    let { (<>), empty } = prelude.make_Monoid w
+    let map f m : (a -> b) -> Writer w a -> Writer w b =
+        { value = f m.value, writer = m.writer  }
 
-    let functor : Functor (Writer w) = {
-        map = \f m -> {
-            value = f m.value,
-            writer = m.writer
-        }
-    }
+    { map }
 
-    let applicative : Applicative (Writer w) = {
-        functor,
-        apply = \mf m -> {
-            value = mf.value m.value,
-            writer = mf.writer <> m.writer
-        },
-        pure = \value -> {
-            value,
-            writer = empty
-        }
-    }
+let make_Applicative w: Monoid w -> Applicative (Writer w) =
+    let { (<>) } = w
 
-    let monad : Monad (Writer w) = {
-        applicative,
-        flat_map = \f m ->
-            let { value, writer } = f m.value
-            { value, writer = m.writer <> writer }
-    }
+    let (<*>) mf m : Writer w (a -> b) -> Writer w a -> Writer w b =
+        { value = mf.value m.value, writer = mf.writer <> m.writer }
+    let pure value: a -> Writer w a =
+        { value, writer = w.empty }
 
-    { functor, applicative, monad }
+    { (<*>), pure }
 
-let tell w : w -> Writer w () =
+let make_Monad w: Monoid w -> Monad (Writer w) =
+    let { (<>) } = w
+    let { pure } = make_Applicative w
+
+    let (>>=) m f : Writer w a -> (a -> Writer w b) -> Writer w b =
+        let { value, writer } = f m.value
+        { value, writer = m.writer <> writer }
+
+    { (>>=), return = pure }
+
+let tell w: w -> Writer w () =
     { value = (), writer = w }
 
-{ Writer, Impl, make, tell }
+{ Writer, make_Functor, make_Applicative, make_Monad, tell }
