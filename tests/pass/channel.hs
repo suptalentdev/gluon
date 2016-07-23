@@ -1,6 +1,7 @@
-let { run, writer, assert_eq } = import "std/test.glu"
+let { run, monad, assert_eq } = import "std/test.glu"
 let prelude = import "std/prelude.glu"
-let { (*>) } = prelude.make_Applicative writer.applicative
+let { (>>=), return, (>>), join, map, lift2, forM_ }
+        = prelude.make_Monad monad
 
 let assert =
     assert_eq (prelude.show_Result prelude.show_Unit prelude.show_Int )
@@ -13,8 +14,8 @@ send sender 1
 send sender 2
 
 let tests =
-    assert (recv receiver) (Ok 0)
-        *> assert (recv receiver) (Ok 1)
-        *> assert (recv receiver) (Ok 2)
+    assert (recv receiver) (Ok 0) >>
+        assert (recv receiver) (Ok 1) >>
+        assert (recv receiver) (Ok 2)
 
 run tests
