@@ -1050,8 +1050,9 @@ impl<'a> Typecheck<'a> {
                 debug!("Intersect\n{} <> {}",
                        types::display_type(&self.symbols, existing_type),
                        types::display_type(&self.symbols, symbol_type));
-                let state = ::unify_type::State::new(&self.environment);
-                let result = unify::intersection(&self.subs, state, existing_type, symbol_type);
+                let mut state = ::unify_type::State::new(&self.environment);
+                let result =
+                    unify::intersection(&self.subs, &mut state, existing_type, symbol_type);
                 debug!("Intersect result {}", result);
                 result
             } else {
@@ -1135,15 +1136,12 @@ impl<'a> Typecheck<'a> {
                             }
                         })
                     });
-                    new_fields.map(|fields| Type::record(types.clone(), fields))
-                        .or_else(|| replacement.clone())
+                    new_fields.map(|fields| Type::record(types.clone(), fields)).or_else(|| replacement.clone())
                 }
                 _ => {
-                    let new_type =
-                        types::walk_move_type_opt(typ,
-                                                  &mut |typ: &Type<Symbol>| {
-                                                      self.finish_type_(level, generic, i, typ)
-                                                  });
+                    let new_type = types::walk_move_type_opt(typ, &mut |typ: &Type<Symbol>| {
+                        self.finish_type_(level, generic, i, typ)
+                    });
                     new_type.map(|t| unroll_app(&t).unwrap_or(t)).or_else(|| replacement.clone())
                 }
             }
@@ -1237,8 +1235,8 @@ impl<'a> Typecheck<'a> {
         debug!("Unify {} <=> {}",
                types::display_type(&self.symbols, expected),
                types::display_type(&self.symbols, &actual));
-        let state = ::unify_type::State::new(&self.environment);
-        match unify::unify(&self.subs, state, expected, &actual) {
+        let mut state = ::unify_type::State::new(&self.environment);
+        match unify::unify(&self.subs, &mut state, expected, &actual) {
             Ok(typ) => Ok(self.subs.set_type(typ)),
             Err(errors) => {
                 let mut expected = expected.clone();
