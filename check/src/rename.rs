@@ -322,18 +322,17 @@ pub fn rename(symbols: &mut SymbolModule,
 
 use std::collections::HashMap;
 use base::instantiate;
-use unify_type::{TypeError, State};
+use unify_type::TypeError;
 use substitution::Substitution;
 use unify::{Error as UnifyError, Unifier, Unifiable, UnifierState};
 
-pub fn equivalent(env: &TypeEnv, actual: &TcType, inferred: &TcType) -> bool {
+pub fn equivalent(mut env: &TypeEnv, actual: &TcType, inferred: &TcType) -> bool {
     let subs = Substitution::new();
     let mut map = HashMap::new();
     let mut equiv = true;
     {
-        let mut state = State::new(env);
         let mut unifier = UnifierState {
-            state: &mut state,
+            state: &mut env,
             subs: &subs,
             unifier: Equivalent {
                 map: &mut map,
@@ -350,12 +349,12 @@ struct Equivalent<'m> {
     equiv: &'m mut bool,
 }
 
-impl<'a, 'm> Unifier<State<'a>, TcType> for Equivalent<'m> {
-    fn report_error(_unifier: &mut UnifierState<State<'a>, TcType, Self>,
+impl<'a, 'm> Unifier<&'a (TypeEnv + 'a), TcType> for Equivalent<'m> {
+    fn report_error(_unifier: &mut UnifierState<&'a (TypeEnv + 'a), TcType, Self>,
                     _error: UnifyError<TcType, TypeError<Symbol>>) {
     }
 
-    fn try_match(unifier: &mut UnifierState<State<'a>, TcType, Self>,
+    fn try_match(unifier: &mut UnifierState<&'a (TypeEnv + 'a), TcType, Self>,
                  l: &TcType,
                  r: &TcType)
                  -> Option<TcType> {

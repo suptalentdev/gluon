@@ -493,14 +493,13 @@ impl<Id, T> Type<Id, T>
         })
     }
 
-    pub fn function(args: Vec<T>, ret: T) -> T
-        where T: Clone
-    {
+    pub fn function(args: Vec<T>, ret: T) -> T where T: Clone {
         let function: T = Type::builtin(BuiltinType::Function);
         args.into_iter()
             .rev()
-            .fold(ret,
-                  |body, arg| Type::app(function.clone(), vec![arg, body]))
+            .fold(ret, |body, arg| {
+                Type::app(function.clone(), vec![arg, body])
+            })
     }
 
     pub fn generic(typ: Generic<Id>) -> T {
@@ -566,17 +565,17 @@ impl<Id, T> Type<Id, T>
         None
     }
 
-    pub fn as_alias(&self) -> Option<(&Id, &[T])> {
+    pub fn as_alias_symbol(&self) -> Option<&Id> {
         match *self {
-            Type::App(ref id, ref args) => {
+            Type::App(ref id, _) => {
                 match **id {
-                    Type::Id(ref id) => Some((id, args)),
-                    Type::Alias(ref alias) => Some((&alias.name, args)),
+                    Type::Id(ref id) => Some(id),
+                    Type::Alias(ref alias) => Some(&alias.name),
                     _ => None,
                 }
             }
-            Type::Id(ref id) => Some((id, &[][..])),
-            Type::Alias(ref alias) => Some((&alias.name, &[][..])),
+            Type::Id(ref id) => Some(id),
+            Type::Alias(ref alias) => Some(&alias.name),
             _ => None,
         }
     }
@@ -585,23 +584,21 @@ impl<Id, T> Type<Id, T>
 impl<T> Type<Symbol, T>
     where T: Deref<Target = Type<Symbol, T>>
 {
-    /// Returns the name of `self`
-    /// Example:
-    /// Option a => Option
-    /// Int => Int
-    pub fn name(&self) -> Option<&SymbolRef> {
-        self.as_alias()
-            .map(|(id, _)| &**id)
-            .or_else(|| match *self {
-                Type::App(ref id, _) => {
-                    match **id {
-                        Type::Builtin(b) => Some(b.symbol()),
-                        _ => None,
-                    }
+    pub fn as_alias(&self) -> Option<(&SymbolRef, &[T])> {
+        match *self {
+            Type::App(ref id, ref args) => {
+                match **id {
+                    Type::Id(ref id) => Some((id, args)),
+                    Type::Alias(ref alias) => Some((&alias.name, args)),
+                    Type::Builtin(b) => Some((b.symbol(), args)),
+                    _ => None,
                 }
-                Type::Builtin(b) => Some(b.symbol()),
-                _ => None,
-            })
+            }
+            Type::Id(ref id) => Some((id, &[][..])),
+            Type::Alias(ref alias) => Some((&alias.name, &[][..])),
+            Type::Builtin(b) => Some((b.symbol(), &[][..])),
+            _ => None,
+        }
     }
 }
 
@@ -740,10 +737,7 @@ impl<'a, I, T, E> fmt::Display for DisplayType<'a, I, T, E>
                         if p >= Prec::Function {
                             write!(f, "({} -> {})", top(self.env, arg), top(self.env, ret))
                         } else {
-                            write!(f,
-                                   "{} -> {}",
-                                   dt(self.env, Prec::Function, arg),
-                                   top(self.env, ret))
+                            write!(f, "{} -> {}", dt(self.env, Prec::Function, arg), top(self.env, ret))
                         }
                     }
                     None => {
