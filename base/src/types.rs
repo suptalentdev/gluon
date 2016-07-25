@@ -162,8 +162,6 @@ pub enum Type<Id, T = ASTType<Id>> {
     Generic(Generic<Id>),
     /// A builtin type
     Builtin(BuiltinType),
-    /// An array type `Array T`
-    Array(T),
     /// A record type
     Record {
         /// The associated types of this record type
@@ -275,12 +273,21 @@ impl<Id> From<Type<Id, RcType<Id>>> for RcType<Id> {
 /// All the builtin types of gluon
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub enum BuiltinType {
+    /// Unicode string
     String,
+    /// Unsigned byte
     Byte,
+    /// Character
     Char,
+    /// Integer number
     Int,
+    /// Floating point number
     Float,
+    /// The unit type
     Unit,
+    /// Type constructor for arrays, `Array a : Type -> Type`
+    Array,
+    /// Type constructor for functions, `(->) a b : Type -> Type -> Type`
     Function,
 }
 
@@ -299,6 +306,7 @@ impl ::std::str::FromStr for BuiltinType {
             "Float" => BuiltinType::Float,
             "String" => BuiltinType::String,
             "Char" => BuiltinType::Char,
+            "Array" => BuiltinType::Array,
             "->" => BuiltinType::Function,
             _ => return Err(()),
         };
@@ -315,6 +323,7 @@ impl BuiltinType {
             BuiltinType::Int => "Int",
             BuiltinType::Float => "Float",
             BuiltinType::Unit => "()",
+            BuiltinType::Array => "Array",
             BuiltinType::Function => "->",
         }
     }
@@ -322,18 +331,18 @@ impl BuiltinType {
 
 /// Kind representation
 ///
-/// All types in gluon has a kind. Most types encountered are of the `Star` (*) kind which
+/// All types in gluon has a kind. Most types encountered are of the `Type` kind which
 /// includes things like `Int`, `String` and `Option Int`. There are however other types which
 /// are said to be "higher kinded" and these use the `Function` (a -> b) variant.
-/// These types include `Option` and `->` which both have the kind `* -> *` as well as `Functor`
-/// which has the kind `(* -> *) -> *`.
+/// These types include `Option` and `(->)` which both have the kind `Type -> Type` as well as
+/// `Functor` which has the kind `(Type -> Type) -> Type`.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Kind {
-    /// Representation for a kind which is yet to be infered
+    /// Representation for a kind which is yet to be inferred.
     Variable(u32),
     /// The simplest possible kind. All values in a program have this kind.
-    Star,
-    /// Constructor which takes two kinds, taking the first as argument and returning the second
+    Type,
+    /// Constructor which takes two kinds, taking the first as argument and returning the second.
     Function(RcKind, RcKind),
 }
 
@@ -341,9 +350,11 @@ impl Kind {
     pub fn variable(v: u32) -> RcKind {
         RcKind::new(Kind::Variable(v))
     }
-    pub fn star() -> RcKind {
-        RcKind::new(Kind::Star)
+
+    pub fn typ() -> RcKind {
+        RcKind::new(Kind::Type)
     }
+
     pub fn function(l: RcKind, r: RcKind) -> RcKind {
         RcKind::new(Kind::Function(l, r))
     }
@@ -471,7 +482,7 @@ impl<Id, T> Type<Id, T>
     where T: From<Type<Id, T>>
 {
     pub fn array(typ: T) -> T {
-        T::from(Type::Array(typ))
+        Type::app(Type::builtin(BuiltinType::Array), vec![typ])
     }
 
     pub fn app(id: T, args: Vec<T>) -> T {
@@ -493,13 +504,14 @@ impl<Id, T> Type<Id, T>
         })
     }
 
-    pub fn function(args: Vec<T>, ret: T) -> T where T: Clone {
+    pub fn function(args: Vec<T>, ret: T) -> T
+        where T: Clone
+    {
         let function: T = Type::builtin(BuiltinType::Function);
         args.into_iter()
             .rev()
-            .fold(ret, |body, arg| {
-                Type::app(function.clone(), vec![arg, body])
-            })
+            .fold(ret,
+                  |body, arg| Type::app(function.clone(), vec![arg, body]))
     }
 
     pub fn generic(typ: Generic<Id>) -> T {
@@ -565,17 +577,17 @@ impl<Id, T> Type<Id, T>
         None
     }
 
-    pub fn as_alias_symbol(&self) -> Option<&Id> {
+    pub fn as_alias(&self) -> Option<(&Id, &[T])> {
         match *self {
-            Type::App(ref id, _) => {
+            Type::App(ref id, ref args) => {
                 match **id {
-                    Type::Id(ref id) => Some(id),
-                    Type::Alias(ref alias) => Some(&alias.name),
+                    Type::Id(ref id) => Some((id, args)),
+                    Type::Alias(ref alias) => Some((&alias.name, args)),
                     _ => None,
                 }
             }
-            Type::Id(ref id) => Some(id),
-            Type::Alias(ref alias) => Some(&alias.name),
+            Type::Id(ref id) => Some((id, &[][..])),
+            Type::Alias(ref alias) => Some((&alias.name, &[][..])),
             _ => None,
         }
     }
@@ -584,21 +596,23 @@ impl<Id, T> Type<Id, T>
 impl<T> Type<Symbol, T>
     where T: Deref<Target = Type<Symbol, T>>
 {
-    pub fn as_alias(&self) -> Option<(&SymbolRef, &[T])> {
-        match *self {
-            Type::App(ref id, ref args) => {
-                match **id {
-                    Type::Id(ref id) => Some((id, args)),
-                    Type::Alias(ref alias) => Some((&alias.name, args)),
-                    Type::Builtin(b) => Some((b.symbol(), args)),
-                    _ => None,
+    /// Returns the name of `self`
+    /// Example:
+    /// Option a => Option
+    /// Int => Int
+    pub fn name(&self) -> Option<&SymbolRef> {
+        self.as_alias()
+            .map(|(id, _)| &**id)
+            .or_else(|| match *self {
+                Type::App(ref id, _) => {
+                    match **id {
+                        Type::Builtin(b) => Some(b.symbol()),
+                        _ => None,
+                    }
                 }
-            }
-            Type::Id(ref id) => Some((id, &[][..])),
-            Type::Alias(ref alias) => Some((&alias.name, &[][..])),
-            Type::Builtin(b) => Some((b.symbol(), &[][..])),
-            _ => None,
-        }
+                Type::Builtin(b) => Some(b.symbol()),
+                _ => None,
+            })
     }
 }
 
@@ -646,8 +660,9 @@ impl<Id> ASTType<Id> {
 
 impl TypeVariable {
     pub fn new(var: u32) -> TypeVariable {
-        TypeVariable::with_kind(Kind::Star, var)
+        TypeVariable::with_kind(Kind::Type, var)
     }
+
     pub fn with_kind(kind: Kind, var: u32) -> TypeVariable {
         TypeVariable {
             kind: RcKind::new(kind),
@@ -663,11 +678,12 @@ impl fmt::Display for Kind {
         write!(f, "{}", DisplayKind(Prec::Top, self))
     }
 }
+
 impl<'a> fmt::Display for DisplayKind<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self.1 {
             Kind::Variable(i) => i.fmt(f),
-            Kind::Star => '*'.fmt(f),
+            Kind::Type => "Type".fmt(f),
             Kind::Function(ref arg, ref ret) => {
                 match self.0 {
                     Prec::Function => {
@@ -737,7 +753,10 @@ impl<'a, I, T, E> fmt::Display for DisplayType<'a, I, T, E>
                         if p >= Prec::Function {
                             write!(f, "({} -> {})", top(self.env, arg), top(self.env, ret))
                         } else {
-                            write!(f, "{} -> {}", dt(self.env, Prec::Function, arg), top(self.env, ret))
+                            write!(f,
+                                   "{} -> {}",
+                                   dt(self.env, Prec::Function, arg),
+                                   top(self.env, ret))
                         }
                     }
                     None => {
@@ -776,7 +795,6 @@ impl<'a, I, T, E> fmt::Display for DisplayType<'a, I, T, E>
                 Ok(())
             }
             Type::Builtin(ref t) => t.fmt(f),
-            Type::Array(ref t) => write!(f, "[{}]", top(self.env, &**t)),
             Type::Record { ref types, ref fields } => {
                 try!(write!(f, "{{"));
                 if !types.is_empty() {
@@ -858,9 +876,6 @@ pub fn walk_type<'t, I: 't, T, F>(typ: &'t T, f: &mut F)
                 walk_type(a, f);
             }
         }
-        Type::Array(ref inner) => {
-            walk_type(inner, f);
-        }
         Type::Record { ref types, ref fields } => {
             for field in types {
                 if let Some(ref typ) = field.typ.typ {
@@ -936,7 +951,6 @@ pub fn walk_move_type_opt<F, I, T>(typ: &Type<I, T>, f: &mut F) -> Option<T>
             let new_args = walk_move_types(args.iter(), |t| walk_move_type_opt(t, f));
             merge(id, walk_move_type_opt(id, f), args, new_args, Type::app)
         }
-        Type::Array(ref inner) => walk_move_type_opt(&**inner, f).map(Type::array),
         Type::Record { ref types, ref fields } => {
             let new_types = None;
             let new_fields = walk_move_types(fields.iter(), |field| {

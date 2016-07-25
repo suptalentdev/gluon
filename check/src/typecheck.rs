@@ -5,16 +5,13 @@ use std::fmt;
 use std::mem;
 
 use base::scoped_map::ScopedMap;
-use base::ast;
-use base::ast::{Typed, DisplayEnv, MutVisitor};
-use base::types;
-use base::types::{RcKind, Type, Generic, Kind};
+use base::ast::{self, Typed, DisplayEnv, MutVisitor};
+use base::types::{self, RcKind, Type, Generic, Kind};
 use base::error::Errors;
 use base::symbol::{Symbol, SymbolRef, SymbolModule, Symbols};
 use base::types::{KindEnv, TypeEnv, PrimitiveEnv, TcIdent, Alias, AliasData, TcType};
-use base::instantiate;
-use base::instantiate::Instantiator;
-use kindcheck;
+use base::instantiate::{self, Instantiator};
+use kindcheck::{self, KindCheck};
 use substitution::Substitution;
 use unify::Error as UnifyError;
 use unify;
@@ -142,7 +139,7 @@ impl<'a> KindEnv for Environment<'a> {
         self.stack_types
             .get(type_name)
             .map(|&(_, ref alias)| {
-                let mut kind = Kind::star();
+                let mut kind = Kind::typ();
                 for arg in alias.args.iter().rev() {
                     kind = Kind::function(arg.kind.clone(), kind);
                 }
@@ -718,16 +715,15 @@ impl<'a> Typecheck<'a> {
                 }
                 {
                     let subs = Substitution::new();
-                    let mut check =
-                        super::kindcheck::KindCheck::new(&self.environment, &self.symbols, subs);
+                    let mut check = KindCheck::new(&self.environment, &self.symbols, subs);
                     // Setup kind variables for all type variables and insert the types in the
                     // this type expression into the kindcheck environment
                     for bind in bindings.iter_mut() {
                         // Create the kind for this binding
-                        // Test a b: 2 -> 1 -> *
+                        // Test a b: 2 -> 1 -> Type
                         // and bind the same variables to the arguments of the type binding
                         // ('a' and 'b' in the example)
-                        let mut id_kind = check.star();
+                        let mut id_kind = check.type_kind();
                         let alias = Alias::make_mut(&mut bind.alias);
                         for gen in alias.args.iter_mut().rev() {
                             gen.kind = check.subs.new_var();
@@ -1036,10 +1032,9 @@ impl<'a> Typecheck<'a> {
                 debug!("Intersect\n{} <> {}",
                        types::display_type(&self.symbols, existing_type),
                        types::display_type(&self.symbols, symbol_type));
-                let result = unify::intersection(&self.subs,
-                                                 &mut (&self.environment as &TypeEnv),
-                                                 existing_type,
-                                                 symbol_type);
+                let mut state = ::unify_type::State::new(&self.environment);
+                let result =
+                    unify::intersection(&self.subs, &mut state, existing_type, symbol_type);
                 debug!("Intersect result {}", result);
                 typ = Some(result);
             }
@@ -1064,7 +1059,7 @@ impl<'a> Typecheck<'a> {
 
     fn finish_type_(&mut self, level: u32, generic: &str, i: &mut i32, typ: TcType) -> TcType {
         types::walk_move_type(typ,
-                                  &mut |typ| {
+                              &mut |typ| {
             let replacement = self.subs
                 .replace_variable(typ)
                 .map(|t| self.finish_type_(level, generic, i, t));
@@ -1172,10 +1167,8 @@ impl<'a> Typecheck<'a> {
         debug!("Unify {} <=> {}",
                types::display_type(&self.symbols, expected),
                types::display_type(&self.symbols, &actual));
-        match unify::unify(&self.subs,
-                           &mut (&self.environment as &TypeEnv),
-                           expected,
-                           &actual) {
+        let mut state = ::unify_type::State::new(&self.environment);
+        match unify::unify(&self.subs, &mut state, expected, &actual) {
             Ok(typ) => Ok(self.subs.set_type(typ)),
             Err(errors) => {
                 let mut expected = expected.clone();
@@ -1247,6 +1240,9 @@ fn apply_subs(subs: &Substitution<TcType>,
                 }
                 Other(::unify_type::TypeError::FieldMismatch(expected, actual)) => {
                     UnifyError::Other(::unify_type::TypeError::FieldMismatch(expected, actual))
+                }
+                Other(::unify_type::TypeError::SelfRecursive(t)) => {
+                    UnifyError::Other(::unify_type::TypeError::SelfRecursive(t))
                 }
             }
         })
