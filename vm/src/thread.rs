@@ -914,7 +914,7 @@ impl<'b> Context<'b> {
                     debug!("{:?}", &self.stack[..]);
                     return self.do_call(args).map(Some);
                 }
-                Construct { tag, args } => {
+                Construct(tag, args) => {
                     let d = {
                         if args == 0 {
                             Value::Tag(tag)
@@ -1012,28 +1012,44 @@ impl<'b> Context<'b> {
                     }
                     self.stack.push(v);
                 }
-                MakeClosure { function_index, upvars } => {
+                GetIndex => {
+                    let index = self.stack.pop();
+                    let array = self.stack.pop();
+                    match (array, index) {
+                        (Data(array), Int(index)) => {
+                            let v = array.fields[index as usize];
+                            self.stack.push(v);
+                        }
+                        (x, y) => {
+                            return Err(Error::Message(format!("Op GetIndex called on invalid \
+                                                               types {:?} {:?}",
+                                                              x,
+                                                              y)))
+                        }
+                    }
+                }
+                MakeClosure(fi, n) => {
                     let closure = {
-                        let args = &self.stack[self.stack.len() - upvars..];
-                        let func = function.inner_functions[function_index as usize];
+                        let args = &self.stack[self.stack.len() - n..];
+                        let func = function.inner_functions[fi as usize];
                         Closure(alloc(&mut self.gc,
                                       self.thread,
                                       &self.stack.stack,
                                       ClosureDataDef(func, args)))
                     };
-                    for _ in 0..upvars {
+                    for _ in 0..n {
                         self.stack.pop();
                     }
                     self.stack.push(closure);
                 }
-                NewClosure { function_index, upvars } => {
+                NewClosure(fi, n) => {
                     let closure = {
                         // Use dummy variables until it is filled
-                        let func = function.inner_functions[function_index as usize];
+                        let func = function.inner_functions[fi as usize];
                         Closure(alloc(&mut self.gc,
                                       self.thread,
                                       &self.stack.stack,
-                                      ClosureInitDef(func, upvars as usize)))
+                                      ClosureInitDef(func, n as usize)))
                     };
                     self.stack.push(closure);
                 }
@@ -1159,8 +1175,8 @@ fn debug_instruction(stack: &StackFrame,
                    x
                }
                PushGlobal(i) => function.globals.get(i as usize).cloned(),
-               NewClosure { .. } |
-               MakeClosure { .. } => Some(Int(stack.len() as isize)),
+               NewClosure(..) => Some(Int(stack.len() as isize)),
+               MakeClosure(..) => Some(Int(stack.len() as isize)),
                _ => None,
            });
 }
