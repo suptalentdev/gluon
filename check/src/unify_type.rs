@@ -386,7 +386,8 @@ mod tests {
     use unify::Error::*;
     use unify::unify;
     use substitution::Substitution;
-    use base::types::{self, EmptyTypeEnv, TcType, Type};
+    use base::types;
+    use base::types::{TcType, Type};
     use tests::*;
 
 
@@ -413,7 +414,7 @@ mod tests {
                                       typ: Type::string(),
                                   }]);
         let subs = Substitution::new();
-        let env = EmptyTypeEnv;
+        let env = ();
         let mut state = State::new(&env);
         let result = unify(&subs, &mut state, &l, &r);
         assert_eq!(result,
