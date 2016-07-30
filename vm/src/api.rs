@@ -876,7 +876,8 @@ impl<'vm, V> Getable<'vm> for OpaqueValue<RootedThread, V> {
     }
 }
 
-/// Type which represents an array
+
+/// Type which represents an array in embed_lang
 pub struct Array<'vm, T>(RootedValue<&'vm Thread>, PhantomData<T>);
 
 impl<'vm, T> Deref for Array<'vm, T> {
