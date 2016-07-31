@@ -1,10 +1,12 @@
 use std::fmt;
 
 use base::ast;
-use base::types::{self, BuiltinType, Generic, RcKind, TcType, Type, Kind, merge};
+use base::types;
+use base::types::{Generic, RcKind, Type, Kind, merge};
 use base::symbol::Symbol;
-use base::types::{KindEnv, Walker};
+use base::types::KindEnv;
 
+use base::types::{BuiltinType, TcType};
 use substitution::{Substitution, Substitutable};
 use unify;
 
@@ -46,10 +48,13 @@ fn walk_move_kind2<F>(kind: &RcKind, f: &mut F) -> Option<RcKind>
     let new2 = {
         let kind = new.as_ref().unwrap_or(kind);
         match **kind {
-            Kind::Function(ref arg, ref ret) => {
-                let arg_new = walk_move_kind2(arg, f);
-                let ret_new = walk_move_kind2(ret, f);
-                merge(arg, arg_new, ret, ret_new, Kind::function)
+            Kind::Function(ref a, ref r) => {
+                match (walk_move_kind2(a, f), walk_move_kind2(r, f)) {
+                    (Some(a), Some(r)) => Some(Kind::function(a, r)),
+                    (Some(a), None) => Some(Kind::function(a, r.clone())),
+                    (None, Some(r)) => Some(Kind::function(a.clone(), r)),
+                    (None, None) => None,
+                }
             }
             Kind::Type |
             Kind::Variable(_) => None,
@@ -64,7 +69,6 @@ impl<'a> KindCheck<'a> {
                subs: Substitution<RcKind>)
                -> KindCheck<'a> {
         let typ = Kind::typ();
-        let function1_kind = Kind::function(typ.clone(), typ.clone());
         KindCheck {
             variables: Vec::new(),
             locals: Vec::new(),
@@ -72,8 +76,8 @@ impl<'a> KindCheck<'a> {
             idents: idents,
             subs: subs,
             type_kind: typ.clone(),
-            function1_kind: function1_kind.clone(),
-            function2_kind: Kind::function(typ, function1_kind),
+            function1_kind: Kind::function(typ.clone(), typ.clone()),
+            function2_kind: Kind::function(typ.clone(), Kind::function(typ.clone(), typ)),
         }
     }
 
@@ -302,10 +306,21 @@ impl Substitutable for RcKind {
         }
     }
 
-    fn traverse<F>(&self, f: &mut F)
-        where F: Walker<RcKind>
+    fn traverse<'s, F>(&'s self, mut f: F)
+        where F: FnMut(&'s RcKind) -> &'s RcKind
     {
-        types::walk_kind(self, f);
+        fn walk_kind<'s>(k: &'s RcKind, f: &mut FnMut(&'s RcKind) -> &'s RcKind) {
+            let k = f(k);
+            match **k {
+                Kind::Function(ref a, ref r) => {
+                    walk_kind(a, f);
+                    walk_kind(r, f);
+                }
+                Kind::Variable(_) |
+                Kind::Type => (),
+            }
+        }
+        walk_kind(self, &mut f)
     }
 }
 

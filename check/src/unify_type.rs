@@ -1,7 +1,9 @@
 use std::fmt;
 
+use base::types;
+use base::types::{Type, merge};
 use base::ast::ASTType;
-use base::types::{self, TcType, Type, TypeVariable, TypeEnv, merge};
+use base::types::{TcType, TypeVariable, TypeEnv};
 use base::symbol::{Symbol, SymbolRef};
 use base::instantiate;
 
@@ -90,10 +92,10 @@ impl<I> Substitutable for ASTType<I> {
         }
     }
 
-    fn traverse<F>(&self, f: &mut F)
-        where F: types::Walker<ASTType<I>>
+    fn traverse<'s, F>(&'s self, mut f: F)
+        where F: FnMut(&'s ASTType<I>) -> &'s ASTType<I>
     {
-        types::walk_type_(self, f)
+        types::walk_type(self, &mut f)
     }
 }
 
@@ -384,7 +386,7 @@ mod tests {
     use unify::Error::*;
     use unify::unify;
     use substitution::Substitution;
-    use base::types::{self, TcType, Type};
+    use base::types::{self, EmptyTypeEnv, TcType, Type};
     use tests::*;
 
 
@@ -411,7 +413,7 @@ mod tests {
                                       typ: Type::string(),
                                   }]);
         let subs = Substitution::new();
-        let env = ();
+        let env = EmptyTypeEnv;
         let mut state = State::new(&env);
         let result = unify(&subs, &mut state, &l, &r);
         assert_eq!(result,
