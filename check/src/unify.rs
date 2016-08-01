@@ -48,37 +48,30 @@ impl<'s, S: ?Sized, Type, U> UnifierState<'s, S, Type, U>
     pub fn try_match(&mut self, l: &Type, r: &Type) -> Option<Type> {
         Unifier::try_match(self, l, r)
     }
-
-    pub fn match_either<F, G>(&mut self, f: F, g: G) -> Result<Option<Type>, ()>
-        where F: FnMut(&mut UnifierState<S, Type, U>) -> Result<Option<Type>, ()>,
-              G: FnMut(&mut UnifierState<S, Type, U>) -> Result<Option<Type>, ()>
-    {
-        Unifier::match_either(self, f, g)
-    }
 }
 
+/// A `Unifier` is a type which implements a unifying strategy between two values.
 pub trait Unifier<S: ?Sized, Type>: Sized
     where Type: Unifiable<S>
 {
+    /// Reports an error to the `unifier` for cases when returning the error is not possible.
     fn report_error(unifier: &mut UnifierState<S, Type, Self>, error: Error<Type, Type::Error>);
+    /// Attempt to unify `l` and `r` using the strategy of `Self`.
     fn try_match(unifier: &mut UnifierState<S, Type, Self>, l: &Type, r: &Type) -> Option<Type>;
-    fn match_either<F, G>(unifier: &mut UnifierState<S, Type, Self>,
-                          mut f: F,
-                          mut g: G)
-                          -> Result<Option<Type>, ()>
-        where F: FnMut(&mut UnifierState<S, Type, Self>) -> Result<Option<Type>, ()>,
-              G: FnMut(&mut UnifierState<S, Type, Self>) -> Result<Option<Type>, ()>
-    {
-        match f(unifier) {
-            Ok(typ) => Ok(typ),
-            Err(()) => g(unifier),
-        }
-    }
 }
 
+/// A type which can be unified by checking for equivalence between the top level of
+/// two instances of the type and then recursively calling into the `unifier` on all sub-terms
 pub trait Unifiable<S: ?Sized>: Substitutable + Sized {
     type Error;
 
+    /// Perform one level of equality testing between `self` and `other` and recursively call
+    /// back into the `unifier` for unification on any sub-terms.
+    ///
+    /// Returns `Ok` if the the immediate level of `self` and `other` were equal and optionally
+    /// returns a more specific type (if None is returned `self` should be chosen as the type if
+    /// that becomes necessary).
+    /// Returns `Err` if the immediate level were not equal.
     fn zip_match<U>(&self,
                     other: &Self,
                     unifier: UnifierState<S, Self, U>)
@@ -86,7 +79,9 @@ pub trait Unifiable<S: ?Sized>: Substitutable + Sized {
         where U: Unifier<S, Self>;
 }
 
-/// Unify `l` and `r` taking into account and updating the substitution `subs`
+/// Unify `l` and `r` taking into account and updating the substitution `subs` using the
+/// [Union-Find](https://en.wikipedia.org/wiki/Disjoint-set_data_structure) algorithm to
+/// resolve which types must be equal.
 /// If the unification is successful the returned type is the unified type with as much sharing as
 /// possible which lets further computions be more efficient.
 pub fn unify<S, T>(subs: &Substitution<T>,
@@ -125,83 +120,45 @@ impl<'e, S, T> Unifier<S, T> for Unify<'e, T, T::Error>
         unifier.unifier.errors.error(error);
     }
 
-    fn match_either<F, G>(unifier: &mut UnifierState<S, T, Self>,
-                          mut f: F,
-                          mut g: G)
-                          -> Result<Option<T>, ()>
-        where F: FnMut(&mut UnifierState<S, T, Self>) -> Result<Option<T>, ()>,
-              G: FnMut(&mut UnifierState<S, T, Self>) -> Result<Option<T>, ()>
-    {
-        let original_errors = unifier.unifier.errors.errors.len();
-        let result = f(unifier);
-        let first_errors = unifier.unifier.errors.errors.len();
-        // If there has been no error added the unification succeded
-        if result.is_ok() && original_errors == first_errors {
-            return result;
-        }
-        let result = g(unifier);
-        let last_errors = unifier.unifier.errors.errors.len();
-        if result.is_ok() && first_errors == last_errors {
-            // Remove any errors found from the first attempt to unify
-            for _ in original_errors..first_errors {
-                unifier.unifier
-                    .errors
-                    .errors
-                    .remove(original_errors);
-            }
-            return result;
-        }
-        for _ in first_errors..last_errors {
-            // Remove the errors from the second attempt (keeping the first attempt)
-            unifier.unifier
-                .errors
-                .errors
-                .remove(first_errors);
-        }
-        Err(())
-    }
-
     fn try_match(unifier: &mut UnifierState<S, T, Self>, l: &T, r: &T) -> Option<T> {
         let subs = unifier.subs;
-        let mut errors = &mut unifier.unifier.errors;
+        let errors = &mut unifier.unifier.errors;
+        // Retrieve the 'real' types by resolving
         let l = subs.real(l);
         let r = subs.real(r);
-        match (l.get_var(), r.get_var()) {
-            (Some(l), Some(r)) if l.get_id() == r.get_id() => None,
+        // `l` and `r` must have the same type, if one is a variable that variable is
+        // 'unioned' with whatever the other type is
+        let result = match (l.get_var(), r.get_var()) {
+            (Some(l), Some(r)) if l.get_id() == r.get_id() => Ok(None),
             (_, Some(r)) => {
                 match subs.union(r, l) {
-                    Ok(()) => Some(l.clone()),
-                    Err(()) => {
-                        errors.error(Error::Occurs(r.clone(), l.clone()));
-                        Some(subs.new_var())
-                    }
+                    Ok(()) => Ok(None),
+                    Err(()) => Err(Error::Occurs(r.clone(), l.clone()))
                 }
             }
             (Some(l), _) => {
                 match subs.union(l, r) {
-                    Ok(()) => Some(r.clone()),
-                    Err(()) => {
-                        errors.error(Error::Occurs(l.clone(), r.clone()));
-                        Some(subs.new_var())
-                    }
+                    Ok(()) => Ok(Some(r.clone())),
+                    Err(()) => Err(Error::Occurs(l.clone(), r.clone()))
                 }
             }
             (None, None) => {
-                let result = {
-                    let next_unifier = UnifierState {
-                        state: unifier.state,
-                        subs: subs,
-                        unifier: Unify { errors: errors },
-                    };
-                    l.zip_match(r, next_unifier)
+                // Both sides are concrete types, the only way they can be equal is if
+                // the matcher finds their top level to be equal (and their sub-terms
+                // unify)
+                let next_unifier = UnifierState {
+                    state: unifier.state,
+                    subs: subs,
+                    unifier: Unify { errors: errors },
                 };
-                match result {
-                    Ok(typ) => typ,
-                    Err(error) => {
-                        errors.error(error);
-                        Some(subs.new_var())
-                    }
-                }
+                l.zip_match(r, next_unifier)
+            }
+        };
+        match result {
+            Ok(typ) => typ,
+            Err(error) => {
+                errors.error(error);
+                Some(subs.new_var())
             }
         }
     }
@@ -253,6 +210,9 @@ impl<'m, S, T> Unifier<S, T> for Intersect<'m, T>
                 match result {
                     Ok(typ) => typ,
                     Err(_) => {
+                        // If the immediate level of `l` and `r` does not match, record
+                        // the mismatched types return a type variable in their place
+                        // (Reusing a variable if the same mismatch was already seen)
                         Some(unifier.unifier
                             .mismatch_map
                             .entry((l.clone(), r.clone()))
@@ -267,7 +227,7 @@ impl<'m, S, T> Unifier<S, T> for Intersect<'m, T>
 
 #[cfg(test)]
 mod test {
-    use base::types::merge;
+    use base::types::{Walker, merge};
     use base::error::Errors;
 
     use super::{Error, Unifier, Unifiable, UnifierState};
@@ -295,20 +255,20 @@ mod test {
                 _ => None,
             }
         }
-        fn traverse<'s, F>(&'s self, mut f: F)
-            where F: FnMut(&'s Self) -> &'s Self
+        fn traverse<F>(&self, f: &mut F)
+            where F: Walker<Self>
         {
-            fn traverse_<'s>(typ: &'s TType, f: &mut FnMut(&'s TType) -> &'s TType) {
-                match *f(typ).0 {
+            fn traverse_(typ: &TType, f: &mut Walker<TType>) {
+                match *typ.0 {
                     Type::Arrow(ref a, ref r) => {
-                        traverse_(a, f);
-                        traverse_(r, f);
+                        f.walk(a);
+                        f.walk(r);
                     }
                     Type::Variable(_) |
                     Type::Id(_) => (),
                 }
             }
-            traverse_(self, &mut f)
+            traverse_(self, f)
         }
     }
 
