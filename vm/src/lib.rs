@@ -80,9 +80,6 @@ quick_error! {
             display("Expected a value of type `{}` but the inferred type was `{}`",
                     expected, actual)
         }
-        OutOfMemory { limit: usize, needed: usize } {
-            display("Thread is out of memory: Limit {}, needed {}", limit, needed)
-        }
         Message(err: String) {
             display("{}", err)
         }

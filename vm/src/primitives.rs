@@ -1,7 +1,7 @@
 //! Module containing functions for interacting with gluon's primitive types.
 use std::string::String as StdString;
 
-use {Variants, Error};
+use Variants;
 use primitives as prim;
 use api::{generic, Generic, Getable, Array, MaybeError, primitive, WithVM};
 use api::generic::A;
@@ -27,7 +27,7 @@ fn array_index<'vm>(array: Array<'vm, Generic<generic::A>>,
 
 fn array_append<'vm>(lhs: Array<'vm, Generic<generic::A>>,
                      rhs: Array<'vm, Generic<generic::A>>)
-                     -> MaybeError<Array<'vm, Generic<generic::A>>, Error> {
+                     -> Array<'vm, Generic<generic::A>> {
     struct Append<'b> {
         lhs: &'b ValueArray,
         rhs: &'b ValueArray,
@@ -66,20 +66,16 @@ fn array_append<'vm>(lhs: Array<'vm, Generic<generic::A>>,
     let vm = lhs.vm();
     let value = {
         let stack = vm.get_stack();
-        let result = vm.alloc(&stack,
-                              Append {
-                                  lhs: &lhs,
-                                  rhs: &rhs,
-                              });
-        match result {
-            Ok(x) => x,
-            Err(err) => return MaybeError::Err(err),
-        }
+        vm.alloc(&stack,
+                 Append {
+                     lhs: &lhs,
+                     rhs: &rhs,
+                 })
     };
-    MaybeError::Ok(Getable::from_value(lhs.vm(), Variants(&Value::Array(value))).expect("Array"))
+    Getable::from_value(lhs.vm(), Variants(&Value::Array(value))).expect("Array")
 }
 
-fn string_append(lhs: WithVM<&str>, rhs: &str) -> MaybeError<String, Error> {
+fn string_append(lhs: WithVM<&str>, rhs: &str) -> String {
     use array::Str;
     struct StrAppend<'b> {
         lhs: &'b str,
@@ -112,17 +108,13 @@ fn string_append(lhs: WithVM<&str>, rhs: &str) -> MaybeError<String, Error> {
     let lhs = lhs.value;
     let value = {
         let stack = vm.get_stack();
-        let result = vm.alloc(&stack,
-                              StrAppend {
-                                  lhs: lhs,
-                                  rhs: rhs,
-                              });
-        match result {
-            Ok(x) => x,
-            Err(err) => return MaybeError::Err(err),
-        }
+        vm.alloc(&stack,
+                 StrAppend {
+                     lhs: lhs,
+                     rhs: rhs,
+                 })
     };
-    MaybeError::Ok(Getable::from_value(vm, Variants(&Value::String(value))).expect("Array"))
+    Getable::from_value(vm, Variants(&Value::String(value))).expect("Array")
 }
 
 fn string_slice(s: &str, start: usize, end: usize) -> MaybeError<&str, String> {
