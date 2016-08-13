@@ -6,12 +6,11 @@ use std::mem;
 
 use base::scoped_map::ScopedMap;
 use base::ast::{self, Typed, DisplayEnv, MutVisitor};
-use base::error::Errors;
-use base::instantiate::{self, Instantiator};
-use base::pos::{Span, Spanned};
-use base::symbol::{Symbol, SymbolRef, SymbolModule, Symbols};
 use base::types::{self, RcKind, Type, Generic, Kind};
+use base::error::Errors;
+use base::symbol::{Symbol, SymbolRef, SymbolModule, Symbols};
 use base::types::{KindEnv, TypeEnv, PrimitiveEnv, TcIdent, Alias, AliasData, TcType, TypeVariable};
+use base::instantiate::{self, Instantiator};
 use kindcheck::{self, KindCheck};
 use substitution::Substitution;
 use unify::Error as UnifyError;
@@ -208,13 +207,13 @@ pub struct Typecheck<'a> {
     original_symbols: ScopedMap<Symbol, Symbol>,
     subs: Substitution<TcType>,
     inst: Instantiator,
-    errors: Errors<Spanned<TypeError<Symbol>>>,
+    errors: Errors<ast::Spanned<TypeError<Symbol>>>,
     /// Type variables `let test: a -> b` (`a` and `b`)
     type_variables: ScopedMap<Symbol, TcType>,
 }
 
 /// Error returned when unsuccessfully typechecking an expression
-pub type Error = Errors<Spanned<TypeError<Symbol>>>;
+pub type Error = Errors<ast::Spanned<TypeError<Symbol>>>;
 
 impl<'a> Typecheck<'a> {
     /// Create a new typechecker which typechecks expressions in `module`
@@ -238,8 +237,8 @@ impl<'a> Typecheck<'a> {
         }
     }
 
-    fn error(&mut self, span: Span, error: TypeError<Symbol>) -> TcType {
-        self.errors.error(Spanned {
+    fn error(&mut self, span: ast::Span, error: TypeError<Symbol>) -> TcType {
+        self.errors.error(ast::Spanned {
             span: span,
             value: error,
         });
@@ -250,7 +249,7 @@ impl<'a> Typecheck<'a> {
         self.environment.get_bool().clone()
     }
 
-    fn find_at(&mut self, span: Span, id: &Symbol) -> TcType {
+    fn find_at(&mut self, span: ast::Span, id: &Symbol) -> TcType {
         match self.find(id) {
             Ok(typ) => typ,
             Err(err) => self.error(span, err),
@@ -403,8 +402,8 @@ impl<'a> Typecheck<'a> {
                     Ok(typ)
                 }
                 Err(errors) => {
-                    for Spanned { span, value } in errors.errors {
-                        self.errors.error(Spanned {
+                    for ast::Spanned { span, value } in errors.errors {
+                        self.errors.error(ast::Spanned {
                             span: span,
                             value: value.into(),
                         });
@@ -445,7 +444,7 @@ impl<'a> Typecheck<'a> {
                 }
                 Err(err) => {
                     returned_type = self.subs.new_var();
-                    self.errors.error(Spanned {
+                    self.errors.error(ast::Spanned {
                         span: expr.span(&ast::TcIdentEnvWrapper(&self.symbols)),
                         value: err,
                     });
@@ -985,7 +984,7 @@ impl<'a> Typecheck<'a> {
         // Finally insert the declared types into the global scope
         for bind in bindings {
             if self.environment.stack_types.get(&bind.name).is_some() {
-                self.errors.error(Spanned {
+                self.errors.error(ast::Spanned {
                     span: expr.span(&ast::TcIdentEnvWrapper(&self.symbols)),
                     value: DuplicateTypeDefinition(bind.name.clone()),
                 });
@@ -1158,8 +1157,7 @@ impl<'a> Typecheck<'a> {
     fn instantiate_signature(&mut self, typ: &TcType) -> TcType {
         let typ = self.instantiate(typ);
         // Put all new generic variable names into scope
-        let named_variables = self.inst.named_variables.borrow();
-        for (generic, variable) in &*named_variables {
+        for (generic, variable) in &self.inst.named_variables {
             if self.type_variables.get(generic).is_none() {
                 self.type_variables.insert(generic.clone(), variable.clone());
             }
@@ -1227,7 +1225,7 @@ impl<'a> Typecheck<'a> {
     }
 
     fn merge_signature(&mut self,
-                       span: Span,
+                       span: ast::Span,
                        level: u32,
                        expected: &TcType,
                        mut actual: TcType)
@@ -1246,7 +1244,7 @@ impl<'a> Typecheck<'a> {
                 actual = self.subs.set_type(actual);
                 let err =
                     TypeError::Unification(expected, actual, apply_subs(&self.subs, errors.errors));
-                self.errors.error(Spanned {
+                self.errors.error(ast::Spanned {
                     span: span,
                     value: err,
                 });
@@ -1255,11 +1253,11 @@ impl<'a> Typecheck<'a> {
         }
     }
 
-    fn unify_span(&mut self, span: Span, expected: &TcType, actual: TcType) -> TcType {
+    fn unify_span(&mut self, span: ast::Span, expected: &TcType, actual: TcType) -> TcType {
         match self.unify(expected, actual) {
             Ok(typ) => typ,
             Err(err) => {
-                self.errors.error(Spanned {
+                self.errors.error(ast::Spanned {
                     span: span,
                     value: err,
                 });

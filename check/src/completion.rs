@@ -3,9 +3,8 @@
 use std::iter::once;
 use std::cmp::Ordering;
 
-use base::ast::{DisplayEnv, Expr, LExpr, LPattern, Pattern, TcIdent, Typed};
+use base::ast::{self, DisplayEnv, Expr, LExpr, Location, LPattern, Pattern, TcIdent, Typed};
 use base::instantiate;
-use base::pos::{Location, Span};
 use base::scoped_map::ScopedMap;
 use base::symbol::Symbol;
 use base::types::{TcType, Type, TypeEnv};
@@ -112,7 +111,7 @@ struct FindVisitor<'a, F> {
 impl<'a, F> FindVisitor<'a, F> {
     fn select_spanned<'e, I, S, T>(&self, iter: I, mut span: S) -> (bool, Option<&'e T>)
         where I: IntoIterator<Item = &'e T>,
-              S: FnMut(&T) -> Span
+              S: FnMut(&T) -> ast::Span
     {
         let mut iter = iter.into_iter().peekable();
         let mut prev = None;

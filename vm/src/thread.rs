@@ -257,7 +257,7 @@ impl Deref for RootedThread {
 
 impl Clone for RootedThread {
     fn clone(&self) -> RootedThread {
-        self.root_thread()
+        RootedThread::from_gc_ptr(self.0)
     }
 }
 
@@ -280,7 +280,7 @@ impl RootedThread {
             child_threads: RwLock::new(Vec::new()),
         };
         let mut gc = Gc::new(0);
-        let vm = gc.alloc(Move(thread)).root_thread();
+        let vm = RootedThread::from_gc_ptr(gc.alloc(Move(thread)));
         *vm.global_state.gc.lock().unwrap() = gc;
         // Enter the top level scope
         StackFrame::frame(vm.stack.lock().unwrap(), 0, State::Unknown);
@@ -301,6 +301,12 @@ impl RootedThread {
     pub unsafe fn from_raw(ptr: *const Thread) -> RootedThread {
         RootedThread(GcPtr::from_raw(ptr))
     }
+
+    fn from_gc_ptr(p: GcPtr<Thread>) -> RootedThread {
+        let vm = RootedThread(p);
+        vm.parent_threads().push(vm.0);
+        vm
+    }
 }
 
 impl Thread {
@@ -309,7 +315,7 @@ impl Thread {
     pub fn new_thread(&self) -> RootedThread {
         let vm = Thread {
             global_state: self.global_state.clone(),
-            parent: Some(self.root_thread()),
+            parent: unsafe { Some(RootedThread::from_gc_ptr(GcPtr::from_raw(self))) },
             local_gc: Mutex::new(self.local_gc.lock().unwrap().new_child_gc()),
             stack: Mutex::new(Stack::new()),
             roots: RwLock::new(Vec::new()),
@@ -318,17 +324,7 @@ impl Thread {
         };
         // Enter the top level scope
         StackFrame::frame(vm.stack.lock().unwrap(), 0, State::Unknown);
-        self.alloc(&self.stack.lock().unwrap(), Move(vm)).root_thread()
-    }
-
-    /// Roots `self`, extending the lifetime of this thread until at least the returned
-    /// `RootedThread` is droppped
-    pub fn root_thread(&self) -> RootedThread {
-        unsafe {
-            let vm = RootedThread(GcPtr::from_raw(self));
-            vm.parent_threads().push(vm.0);
-            vm
-        }
+        RootedThread::from_gc_ptr(self.alloc(&self.stack.lock().unwrap(), Move(vm)))
     }
 
     /// Creates a new global value at `name`.
@@ -570,7 +566,7 @@ impl ThreadInternal for Thread {
     fn root_value(&self, value: Value) -> RootedValue<RootedThread> {
         self.rooted_values.write().unwrap().push(value);
         RootedValue {
-            vm: self.root_thread(),
+            vm: unsafe { RootedThread::from_gc_ptr(GcPtr::from_raw(self)) },
             value: value,
         }
     }

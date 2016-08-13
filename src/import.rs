@@ -1,5 +1,4 @@
 //! Implementation of the `import` macro.
-
 use std::any::Any;
 use std::sync::{Arc, RwLock, Mutex};
 use std::fs::File;
@@ -9,7 +8,6 @@ use std::path::{Path, PathBuf};
 
 use base::ast;
 use base::metadata::Metadata;
-use base::pos;
 use base::symbol::Symbol;
 use vm::macros::{Macro, Error as MacroError};
 use vm::thread::{Thread, ThreadInternal};
@@ -165,7 +163,7 @@ impl<I> Macro for Import<I>
                     try!(self.importer.import(vm, &modulename, file_contents));
                 }
                 // FIXME Does not handle shadowing
-                Ok(pos::located(arguments[0].location,
+                Ok(ast::located(arguments[0].location,
                                 ast::Expr::Identifier(TcIdent::new(name))))
             }
             _ => return Err(Error::String("Expected a string literal to import".into()).into()),
