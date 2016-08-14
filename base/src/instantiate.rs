@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::ops::Deref;
 
@@ -74,8 +75,7 @@ pub fn remove_alias(env: &TypeEnv, typ: TcType) -> TcType {
     maybe_remove_alias(env, &typ).unwrap_or(None).unwrap_or(typ)
 }
 
-/// Expand `typ` if it is an alias that can be expanded and return the expanded type.
-/// Returns `None` if the type is not an alias or the alias could not be expanded.
+/// Expand `typ` if it is an alias that can be expanded and return the expanded type. Returns `None` if the type is not an alias or the alias could not be expanded.
 pub fn maybe_remove_alias(env: &TypeEnv, typ: &TcType) -> Result<Option<TcType>, Error> {
     let maybe_alias = match **typ {
         Type::Alias(ref alias) if alias.args.is_empty() => Some(alias),
@@ -166,19 +166,20 @@ pub fn type_of_alias(alias: &AliasData<Symbol, TcType>, arguments: &[TcType]) ->
 
 #[derive(Debug, Default)]
 pub struct Instantiator {
-    pub named_variables: FnvMap<Symbol, TcType>,
+    pub named_variables: RefCell<FnvMap<Symbol, TcType>>,
 }
 
 impl Instantiator {
     pub fn new() -> Instantiator {
-        Instantiator { named_variables: FnvMap::default() }
+        Instantiator { named_variables: RefCell::new(FnvMap::default()) }
     }
 
-    fn variable_for(&mut self,
+    fn variable_for(&self,
                     generic: &Generic<Symbol>,
                     on_unbound: &mut FnMut(&Symbol) -> TcType)
                     -> TcType {
-        let var = match self.named_variables.entry(generic.id.clone()) {
+        let mut variables = self.named_variables.borrow_mut();
+        let var = match variables.entry(generic.id.clone()) {
             Entry::Vacant(entry) => {
                 let t = on_unbound(&generic.id);
                 entry.insert(t).clone()
@@ -196,7 +197,7 @@ impl Instantiator {
     pub fn instantiate<F>(&mut self, typ: &TcType, on_unbound: F) -> TcType
         where F: FnMut(&Symbol) -> TcType
     {
-        self.named_variables.clear();
+        self.named_variables.borrow_mut().clear();
         self.instantiate_(typ, on_unbound)
     }
 
