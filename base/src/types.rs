@@ -6,8 +6,6 @@ use std::sync::Arc;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use pretty::{DocAllocator, Arena, DocBuilder};
-
 use ast;
 use ast::{AstType, DisplayEnv};
 use symbol::{Symbol, SymbolRef};
@@ -678,165 +676,109 @@ pub struct DisplayType<'a, I: 'a, T: 'a, E: 'a> {
 
 impl<'a, I, T, E> fmt::Display for DisplayType<'a, I, T, E>
     where E: DisplayEnv<Ident = I> + 'a,
-          T: Deref<Target = Type<I, T>> + 'a,
-          I: AsRef<str>
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // Standard width for terminals are 80 characters
-        const WIDTH: usize = 80;
-
-        let arena = Arena::new();
-        let mut s = Vec::new();
-        try!(self.pretty(&arena)
-            .group()
-            .1
-            .render(WIDTH, &mut s)
-            .map_err(|_| fmt::Error));
-        s.pop();// Remove the ending newline
-        write!(f, "{}", ::std::str::from_utf8(&s).expect("utf-8"))
-    }
-}
-
-fn enclose<'a>(p: Prec,
-               limit: Prec,
-               arena: &'a Arena<'a>,
-               doc: DocBuilder<'a, Arena<'a>>)
-               -> DocBuilder<'a, Arena<'a>> {
-    let pre = if p >= limit {
-        arena.text("(")
-    } else {
-        arena.nil()
-    };
-    let mid = pre.append(doc);
-    if p >= limit {
-        mid.append(arena.text(")"))
-    } else {
-        mid
-    }
-}
-
-macro_rules! chain {
-    ($alloc: expr; $first: expr, $($rest: expr),+) => {{
-        let mut doc = ::pretty::DocBuilder($alloc, $first.into());
-        $(
-            doc = doc.append($rest);
-        )*
-        doc
-    }}
-}
-
-impl<'a, I, T, E> DisplayType<'a, I, T, E>
-    where E: DisplayEnv<Ident = I> + 'a,
           T: Deref<Target = Type<I, T>> + 'a
 {
-    fn pretty(&self, arena: &'a Arena<'a>) -> DocBuilder<'a, Arena<'a>>
-        where I: AsRef<str>
-    {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let p = self.prec;
         match *self.typ {
-            Type::Variable(ref var) => arena.text(format!("{}", var.id)),
-            Type::Generic(ref gen) => arena.text(gen.id.as_ref()),
+            Type::Variable(ref var) => write!(f, "{}", var),
+            Type::Generic(ref gen) => write!(f, "{}", self.env.string(&gen.id)),
             Type::App(ref t, ref args) => {
                 match self.typ.as_function() {
                     Some((arg, ret)) => {
-                        let doc = chain![arena;
-                                         dt(self.env, Prec::Function, arg).pretty(arena).group(),
-                                         " ->",
-                                         arena.newline(),
-                                         top(self.env, ret).pretty(arena)];
-
-                        enclose(p, Prec::Function, arena, doc)
+                        if p >= Prec::Function {
+                            write!(f, "({} -> {})", top(self.env, arg), top(self.env, ret))
+                        } else {
+                            write!(f,
+                                   "{} -> {}",
+                                   dt(self.env, Prec::Function, arg),
+                                   top(self.env, ret))
+                        }
                     }
                     None => {
-                        let mut doc = dt(self.env, Prec::Top, t).pretty(arena);
-                        for arg in args {
-                            doc = doc.append(arena.newline())
-                                .append(dt(self.env, Prec::Constructor, arg).pretty(arena));
+                        if p >= Prec::Constructor {
+                            try!(write!(f, "("));
                         }
-                        enclose(p, Prec::Constructor, arena, doc).group()
+                        try!(write!(f, "{}", dt(self.env, Prec::Top, t)));
+                        for arg in args {
+                            try!(write!(f, " {}", dt(self.env, Prec::Constructor, arg)));
+                        }
+                        if p >= Prec::Constructor {
+                            try!(write!(f, ")"));
+                        }
+                        Ok(())
                     }
                 }
             }
             Type::Variants(ref variants) => {
+                if p >= Prec::Constructor {
+                    try!(write!(f, "("));
+                }
                 let mut first = true;
-                let mut doc = arena.nil();
                 for variant in variants {
                     if !first {
-                        doc = doc.append(arena.newline());
+                        try!(write!(f, " "));
                     }
                     first = false;
-                    doc = doc.append("| ")
-                        .append(variant.0.as_ref());
+                    try!(write!(f, "| {}", self.env.string(&variant.0)));
                     for arg in arg_iter(&variant.1) {
-                        doc = chain![arena;
-                                     doc,
-                                     " ",
-                                     dt(self.env, Prec::Constructor, &arg).pretty(arena)];
+                        try!(write!(f, " {}", dt(self.env, Prec::Constructor, &arg)));
                     }
                 }
-                enclose(p, Prec::Constructor, arena, doc).group()
+                if p >= Prec::Constructor {
+                    try!(write!(f, ")"));
+                }
+                Ok(())
             }
-            Type::Builtin(ref t) => arena.text(t.to_str()),
+            Type::Builtin(ref t) => t.fmt(f),
             Type::Record { ref types, ref fields } => {
-                let mut doc = arena.text("{");
+                try!(write!(f, "{{"));
                 if !types.is_empty() {
-                    for (i, field) in types.iter().enumerate() {
-                        let f = chain![arena;
-                            self.env.string(&field.name),
-                            arena.newline(),
-                            arena.concat(field.typ.args.iter().map(|arg| {
-                                arena.text(self.env.string(&arg.id)).append(" ").into()
-                            })),
-                            match field.typ.typ {
-                                Some(ref typ) => {
-                                    arena.text("= ")
-                                        .append(top(self.env, typ).pretty(arena))
-                                }
-                                None => arena.text("= <abstract>"),
-                            },
-                            if i + 1 != types.len() || !fields.is_empty() {
-                                arena.text(",")
-                            } else {
-                                arena.nil()
-                            }]
-                            .group();
-                        doc = doc.append(arena.newline()).append(f);
+                    try!(write!(f, " {} ", self.env.string(&types[0].name)));
+                    for arg in &types[0].typ.args {
+                        try!(write!(f, "{} ", self.env.string(&arg.id)));
+                    }
+                    match types[0].typ.typ {
+                        Some(ref typ) => try!(write!(f, "= {}", top(self.env, typ))),
+                        None => try!(write!(f, "= <abstract>")),
+                    }
+                    for field in &types[1..] {
+                        try!(write!(f, ", {} ", self.env.string(&field.name)));
+                        for arg in &field.typ.args {
+                            try!(write!(f, "{} ", self.env.string(&arg.id)));
+                        }
+                        match field.typ.typ {
+                            Some(ref typ) => try!(write!(f, "= {}", top(self.env, typ))),
+                            None => try!(write!(f, "= <abstract>")),
+                        }
+                    }
+                    if fields.is_empty() {
+                        try!(write!(f, " "));
                     }
                 }
                 if !fields.is_empty() {
-                    for (i, field) in fields.iter().enumerate() {
-                        let mut rhs = top(self.env, &*field.typ).pretty(arena);
-                        match *field.typ {
-                            // Records handle nesting on their own
-                            Type::Record { .. } => (),
-                            _ => rhs = rhs.nest(4),
-                        }
-                        let f = chain![arena;
-                            self.env.string(&field.name),
-                            " : ",
-                            rhs.group(),
-                            if i + 1 != fields.len() {
-                                arena.text(",")
-                            } else {
-                                arena.nil()
-                            }]
-                            .group();
-                        doc = doc.append(arena.newline()).append(f);
+                    if !types.is_empty() {
+                        try!(write!(f, ","));
                     }
+                    try!(write!(f,
+                                " {}: {}",
+                                self.env.string(&fields[0].name),
+                                top(self.env, &*fields[0].typ)));
+                    for field in &fields[1..] {
+                        try!(write!(f,
+                                    ", {}: {}",
+                                    self.env.string(&field.name),
+                                    top(self.env, &*field.typ)));
+                    }
+                    try!(write!(f, " "));
                 }
-                doc = doc.nest(4);
-                if !types.is_empty() || !fields.is_empty() {
-                    doc = doc.append(arena.newline());
-                }
-                doc.append("}")
-                    .group()
+                write!(f, "}}")
             }
-            Type::Id(ref id) => arena.text(self.env.string(id)),
-            Type::Alias(ref alias) => arena.text(self.env.string(&alias.name)),
+            Type::Id(ref id) => write!(f, "{}", self.env.string(id)),
+            Type::Alias(ref alias) => write!(f, "{}", self.env.string(&alias.name)),
         }
     }
 }
-
 
 #[derive(PartialEq, Copy, Clone, PartialOrd)]
 enum Prec {

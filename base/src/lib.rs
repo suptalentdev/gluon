@@ -5,14 +5,14 @@
 extern crate log;
 #[macro_use]
 extern crate quick_error;
-extern crate pretty;
 
 pub mod ast;
-pub mod fixed;
-pub mod symbol;
 pub mod error;
-pub mod types;
-pub mod scoped_map;
-pub mod metadata;
-pub mod instantiate;
+pub mod fixed;
 pub mod fnv;
+pub mod instantiate;
+pub mod metadata;
+pub mod pos;
+pub mod scoped_map;
+pub mod symbol;
+pub mod types;
