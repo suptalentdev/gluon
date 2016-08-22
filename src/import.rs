@@ -94,7 +94,7 @@ impl Importer for CheckImporter {
 /// already loaded and then a global access to the loaded module
 pub struct Import<I = DefaultImporter> {
     visited: RwLock<Vec<String>>,
-    pub paths: RwLock<Vec<PathBuf>>,
+    paths: RwLock<Vec<PathBuf>>,
     pub importer: I,
 }
 
