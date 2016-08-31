@@ -3,7 +3,7 @@
 use std::fmt;
 use std::ops::Deref;
 
-use pos::{BytePos, Spanned};
+use pos::Spanned;
 use symbol::Symbol;
 use types::{self, Alias, AliasData, Kind, Type, TypeEnv, TypeVariable};
 
@@ -179,7 +179,7 @@ pub enum LiteralEnum {
 }
 
 /// Pattern which contains a location
-pub type SpannedPattern<Id> = Spanned<Pattern<Id>, BytePos>;
+pub type SpannedPattern<Id> = Spanned<Pattern<Id>>;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Pattern<Id: AstId> {
@@ -214,7 +214,7 @@ pub struct Lambda<Id: AstId> {
 }
 
 /// Expression which contains a location
-pub type SpannedExpr<Id> = Spanned<Expr<Id>, BytePos>;
+pub type SpannedExpr<Id> = Spanned<Expr<Id>>;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Expr<Id: AstId> {
@@ -417,7 +417,7 @@ impl<Id> Typed for Expr<Id>
     }
 }
 
-impl<T: Typed> Typed for Spanned<T, BytePos> {
+impl<T: Typed> Typed for Spanned<T> {
     type Id = T::Id;
 
     fn env_type_of(&self, env: &TypeEnv) -> AstType<T::Id> {

@@ -7,7 +7,7 @@ extern crate log;
 use base::ast;
 use base::ast::*;
 use base::error::Errors;
-use base::pos::{self, BytePos, Span, Spanned};
+use base::pos::{self, BytePos, CharPos, Location, Span, Spanned};
 use base::types::{Type, Generic, Alias, Field, Kind};
 use parser::{parse_string, Error};
 
@@ -15,29 +15,43 @@ pub fn intern(s: &str) -> String {
     String::from(s)
 }
 
-type SpExpr = SpannedExpr<String>;
+type PExpr = SpannedExpr<String>;
 
-fn no_loc<T>(value: T) -> Spanned<T, BytePos> {
+fn loc(line: u32, column: usize, absolute: u32) -> Location {
+    Location {
+        line: line,
+        column: CharPos(column),
+        absolute: BytePos(absolute),
+    }
+}
+
+fn no_loc<T>(value: T) -> Spanned<T> {
+    let max_loc = Location {
+        line: u32::max_value(),
+        column: CharPos(usize::max_value()),
+        absolute: BytePos(u32::max_value()),
+    };
+
     pos::spanned(Span {
-                     start: BytePos(u32::max_value()),
-                     end: BytePos(u32::max_value()),
+                     start: max_loc,
+                     end: max_loc,
                  },
                  value)
 }
 
-fn binop(l: SpExpr, s: &str, r: SpExpr) -> SpExpr {
+fn binop(l: PExpr, s: &str, r: PExpr) -> PExpr {
     no_loc(Expr::BinOp(Box::new(l), intern(s), Box::new(r)))
 }
 
-fn int(i: i64) -> SpExpr {
+fn int(i: i64) -> PExpr {
     no_loc(Expr::Literal(LiteralEnum::Integer(i)))
 }
 
-fn let_(s: &str, e: SpExpr, b: SpExpr) -> SpExpr {
+fn let_(s: &str, e: PExpr, b: PExpr) -> PExpr {
     let_a(s, &[], e, b)
 }
 
-fn let_a(s: &str, args: &[&str], e: SpExpr, b: SpExpr) -> SpExpr {
+fn let_a(s: &str, args: &[&str], e: PExpr, b: PExpr) -> PExpr {
     no_loc(Expr::Let(vec![Binding {
                               comment: None,
                               name: no_loc(Pattern::Identifier(intern(s))),
@@ -48,7 +62,7 @@ fn let_a(s: &str, args: &[&str], e: SpExpr, b: SpExpr) -> SpExpr {
                      Box::new(b)))
 }
 
-fn id(s: &str) -> SpExpr {
+fn id(s: &str) -> PExpr {
     no_loc(Expr::Identifier(intern(s)))
 }
 
@@ -80,15 +94,15 @@ fn generic(s: &str) -> Generic<String> {
     }
 }
 
-fn call(e: SpExpr, args: Vec<SpExpr>) -> SpExpr {
+fn call(e: PExpr, args: Vec<PExpr>) -> PExpr {
     no_loc(Expr::Call(Box::new(e), args))
 }
 
-fn if_else(p: SpExpr, if_true: SpExpr, if_false: SpExpr) -> SpExpr {
+fn if_else(p: PExpr, if_true: PExpr, if_false: PExpr) -> PExpr {
     no_loc(Expr::IfElse(Box::new(p), Box::new(if_true), Some(Box::new(if_false))))
 }
 
-fn case(e: SpExpr, alts: Vec<(Pattern<String>, SpExpr)>) -> SpExpr {
+fn case(e: PExpr, alts: Vec<(Pattern<String>, PExpr)>) -> PExpr {
     no_loc(Expr::Match(Box::new(e),
                        alts.into_iter()
                            .map(|(p, e)| {
@@ -100,7 +114,7 @@ fn case(e: SpExpr, alts: Vec<(Pattern<String>, SpExpr)>) -> SpExpr {
                            .collect()))
 }
 
-fn lambda(name: &str, args: Vec<String>, body: SpExpr) -> SpExpr {
+fn lambda(name: &str, args: Vec<String>, body: PExpr) -> PExpr {
     no_loc(Expr::Lambda(Lambda {
         id: intern(name),
         arguments: args,
@@ -108,7 +122,7 @@ fn lambda(name: &str, args: Vec<String>, body: SpExpr) -> SpExpr {
     }))
 }
 
-fn type_decl(name: String, args: Vec<Generic<String>>, typ: AstType<String>, body: SpExpr) -> SpExpr {
+fn type_decl(name: String, args: Vec<Generic<String>>, typ: AstType<String>, body: PExpr) -> PExpr {
     type_decls(vec![TypeBinding {
                         comment: None,
                         name: name.clone(),
@@ -117,17 +131,17 @@ fn type_decl(name: String, args: Vec<Generic<String>>, typ: AstType<String>, bod
                body)
 }
 
-fn type_decls(binds: Vec<TypeBinding<String>>, body: SpExpr) -> SpExpr {
+fn type_decls(binds: Vec<TypeBinding<String>>, body: PExpr) -> PExpr {
     no_loc(Expr::Type(binds, Box::new(body)))
 }
 
-fn record(fields: Vec<(String, Option<SpExpr>)>) -> SpExpr {
+fn record(fields: Vec<(String, Option<PExpr>)>) -> PExpr {
     record_a(Vec::new(), fields)
 }
 
 fn record_a(types: Vec<(String, Option<AstType<String>>)>,
-            fields: Vec<(String, Option<SpExpr>)>)
-            -> SpExpr {
+            fields: Vec<(String, Option<PExpr>)>)
+            -> PExpr {
     no_loc(Expr::Record {
         typ: intern(""),
         types: types,
@@ -135,11 +149,11 @@ fn record_a(types: Vec<(String, Option<AstType<String>>)>,
     })
 }
 
-fn field_access(expr: SpExpr, field: &str) -> SpExpr {
+fn field_access(expr: PExpr, field: &str) -> PExpr {
     no_loc(Expr::FieldAccess(Box::new(expr), intern(field)))
 }
 
-fn array(fields: Vec<SpExpr>) -> SpExpr {
+fn array(fields: Vec<PExpr>) -> PExpr {
     no_loc(Expr::Array(Array {
         id: intern(""),
         expressions: fields,
@@ -402,8 +416,8 @@ fn span_identifier() {
     let e = parse_new("test");
     assert_eq!(e.span,
                Span {
-                   start: BytePos(0),
-                   end: BytePos(4),
+                   start: loc(1, 1, 0),
+                   end: loc(1, 5, 4),
                });
 }
 
@@ -415,8 +429,8 @@ fn span_integer() {
     let e = parse_new("1234");
     assert_eq!(e.span,
                Span {
-                   start: BytePos(0),
-                   end: BytePos(4),
+                   start: loc(1, 1, 0),
+                   end: loc(1, 5, 4),
                });
 }
 
@@ -429,8 +443,8 @@ fn span_string_literal() {
     let e = parse_new(r#" "test" "#);
     assert_eq!(e.span,
                Span {
-                   start: BytePos(1),
-                   end: BytePos(7),
+                   start: loc(1, 2, 1),
+                   end: loc(1, 8, 7),
                });
 }
 
@@ -441,8 +455,8 @@ fn span_call() {
     let e = parse_new(r#" f 123 "asd""#);
     assert_eq!(e.span,
                Span {
-                   start: BytePos(1),
-                   end: BytePos(12),
+                   start: loc(1, 2, 1),
+                   end: loc(1, 13, 12),
                });
 }
 
@@ -457,8 +471,8 @@ match False with
 "#);
     assert_eq!(e.span,
                Span {
-                   start: BytePos(1),
-                   end: BytePos(55),
+                   start: loc(2, 1, 1),
+                   end: loc(4, 18, 55),
                });
 }
 
@@ -474,8 +488,8 @@ else
 "#);
     assert_eq!(e.span,
                Span {
-                   start: BytePos(1),
-                   end: BytePos(35),
+                   start: loc(2, 1, 1),
+                   end: loc(5, 11, 35),
                });
 }
 
@@ -486,8 +500,8 @@ fn span_byte() {
     let e = parse_new(r#"124b"#);
     assert_eq!(e.span,
                Span {
-                   start: BytePos(0),
-                   end: BytePos(4),
+                   start: loc(1, 1, 0),
+                   end: loc(1, 5, 4),
                });
 }
 
@@ -496,16 +510,16 @@ fn span_field_access() {
     let _ = ::env_logger::init();
     let expr = parse_new("record.x");
     assert_eq!(expr.span,
-               Span {
-                   start: BytePos(0),
-                   end: BytePos(8),
-               });
+                Span {
+                    start: loc(1, 1, 0),
+                    end: loc(1, 9, 8),
+                });
     match expr.value {
         Expr::FieldAccess(ref e, _) => {
             assert_eq!(e.span,
                        Span {
-                           start: BytePos(0),
-                           end: BytePos(6),
+                           start: loc(1, 1, 0),
+                           end: loc(1, 7, 6),
                        });
         }
         _ => panic!(),
@@ -602,8 +616,8 @@ fn partial_field_access() {
     assert_eq!(e.unwrap_err().0,
                Some(Spanned {
                    span: Span {
-                       start: BytePos(0),
-                       end: BytePos(0),
+                       start: loc(0, 0, 0),
+                       end: loc(0, 0, 0),
                    },
                    value: Expr::FieldAccess(Box::new(id("test")), intern("")),
                }));
@@ -621,13 +635,13 @@ test
     assert_eq!(e.unwrap_err().0,
                Some(Spanned {
                    span: Span {
-                       start: BytePos(0),
-                       end: BytePos(0),
+                       start: loc(0, 0, 0),
+                       end: loc(0, 0, 0),
                    },
                    value: Expr::Block(vec![Spanned {
                                                span: Span {
-                                                   start: BytePos(0),
-                                                   end: BytePos(0),
+                                                   start: loc(0, 0, 0),
+                                                   end: loc(0, 0, 0),
                                                },
                                                value: Expr::FieldAccess(Box::new(id("test")),
                                                                         intern("")),

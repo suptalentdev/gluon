@@ -8,7 +8,7 @@ use base::scoped_map::ScopedMap;
 use base::ast::{self, Typed, DisplayEnv, MutVisitor};
 use base::error::Errors;
 use base::instantiate::{self, Instantiator};
-use base::pos::{BytePos, Span, Spanned};
+use base::pos::{Span, Spanned};
 use base::symbol::{Symbol, SymbolRef, SymbolModule, Symbols};
 use base::types::{self, RcKind, Type, Generic, Kind};
 use base::types::{KindEnv, TypeEnv, PrimitiveEnv, TcIdent, Alias, AliasData, TcType, TypeVariable};
@@ -124,8 +124,6 @@ impl<I: fmt::Display + AsRef<str>> fmt::Display for TypeError<I> {
     }
 }
 
-pub type SpannedTypeError<Id> = Spanned<TypeError<Id>, BytePos>;
-
 type TcResult<T> = Result<T, TypeError<Symbol>>;
 
 struct Environment<'a> {
@@ -210,13 +208,13 @@ pub struct Typecheck<'a> {
     original_symbols: ScopedMap<Symbol, Symbol>,
     subs: Substitution<TcType>,
     inst: Instantiator,
-    errors: Errors<SpannedTypeError<Symbol>>,
+    errors: Errors<Spanned<TypeError<Symbol>>>,
     /// Type variables `let test: a -> b` (`a` and `b`)
     type_variables: ScopedMap<Symbol, TcType>,
 }
 
 /// Error returned when unsuccessfully typechecking an expression
-pub type Error = Errors<SpannedTypeError<Symbol>>;
+pub type Error = Errors<Spanned<TypeError<Symbol>>>;
 
 impl<'a> Typecheck<'a> {
     /// Create a new typechecker which typechecks expressions in `module`
@@ -240,7 +238,7 @@ impl<'a> Typecheck<'a> {
         }
     }
 
-    fn error(&mut self, span: Span<BytePos>, error: TypeError<Symbol>) -> TcType {
+    fn error(&mut self, span: Span, error: TypeError<Symbol>) -> TcType {
         self.errors.error(Spanned {
             span: span,
             value: error,
@@ -252,7 +250,7 @@ impl<'a> Typecheck<'a> {
         self.environment.get_bool().clone()
     }
 
-    fn find_at(&mut self, span: Span<BytePos>, id: &Symbol) -> TcType {
+    fn find_at(&mut self, span: Span, id: &Symbol) -> TcType {
         match self.find(id) {
             Ok(typ) => typ,
             Err(err) => self.error(span, err),
@@ -1224,7 +1222,7 @@ impl<'a> Typecheck<'a> {
     }
 
     fn merge_signature(&mut self,
-                       span: Span<BytePos>,
+                       span: Span,
                        level: u32,
                        expected: &TcType,
                        mut actual: TcType)
@@ -1252,7 +1250,7 @@ impl<'a> Typecheck<'a> {
         }
     }
 
-    fn unify_span(&mut self, span: Span<BytePos>, expected: &TcType, actual: TcType) -> TcType {
+    fn unify_span(&mut self, span: Span, expected: &TcType, actual: TcType) -> TcType {
         match self.unify(expected, actual) {
             Ok(typ) => typ,
             Err(err) => {

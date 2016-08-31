@@ -222,7 +222,7 @@ impl<Id> Token<Id> {
     }
 }
 
-pub type SpannedToken<Id> = Spanned<Token<Id>, Location>;
+pub type SpannedToken<Id> = Spanned<Token<Id>>;
 
 #[derive(Clone, Debug)]
 pub struct Offside {
@@ -320,7 +320,7 @@ pub struct Lexer<'input, I>
     /// Since the parser will call `position` before retrieving the token we need to cache one
     /// token so the span can be returned for it
     next_token: Option<SpannedToken<&'input str>>,
-    end_span: Option<Span<Location>>,
+    end_span: Option<Span>,
 }
 
 impl<'input, I> Lexer<'input, I>
@@ -659,7 +659,7 @@ impl<'input, I> Lexer<'input, I>
                     -> SpannedToken<&'input str> {
         let span = token.span;
         self.unprocessed_tokens.push(token);
-        SpannedToken {
+        Spanned {
             span: span,
             value: layout_token,
         }
@@ -668,7 +668,7 @@ impl<'input, I> Lexer<'input, I>
     fn uncons_next(&mut self) -> Result<SpannedToken<&'input str>, Error<&'input str>> {
         let token = self.next_token();
         match self.layout_independent_token(token) {
-            Ok(SpannedToken { value: Token::EOF, .. }) => Err(Error::end_of_input()),
+            Ok(Spanned { value: Token::EOF, .. }) => Err(Error::end_of_input()),
             Ok(token) => {
                 debug!("Lex {:?}", token);
                 Ok(token)
@@ -954,7 +954,7 @@ impl<'input, I> StreamOnce for Lexer<'input, I>
 {
     type Item = Token<&'input str>;
     type Range = Token<&'input str>;
-    type Position = Span<Location>;
+    type Position = Span;
 
     fn uncons(&mut self) -> Result<Token<&'input str>, Error<&'input str>> {
         match self.next_token.take() {
