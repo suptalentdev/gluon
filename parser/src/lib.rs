@@ -7,6 +7,7 @@ extern crate gluon_base as base;
 extern crate combine;
 extern crate combine_language;
 
+// pub mod grammar;
 pub mod lexer;
 
 use std::cell::RefCell;
@@ -18,7 +19,7 @@ use std::rc::Rc;
 use base::ast;
 use base::ast::*;
 use base::error::Errors;
-use base::pos::{self, Location, Located, Span};
+use base::pos::{self, BytePos, Span};
 use base::types::{Type, Generic, Alias, Field, Kind};
 use base::symbol::{Name, Symbol, SymbolModule};
 
@@ -40,7 +41,7 @@ pub struct StreamType(());
 impl StreamOnce for StreamType {
     type Item = Token<String>;
     type Range = Token<String>;
-    type Position = Location;
+    type Position = BytePos;
 
     fn uncons(&mut self) -> Result<Token<String>, ::lexer::Error<String>> {
         unimplemented!()
@@ -76,14 +77,19 @@ pub struct Wrapper<'input: 'lexer, 'lexer> {
 impl<'input, 'lexer> StreamOnce for Wrapper<'input, 'lexer> {
     type Item = Token<&'input str>;
     type Range = Token<&'input str>;
-    type Position = Span;
+    type Position = Span<BytePos>;
 
     fn uncons(&mut self) -> Result<Token<&'input str>, lexer::Error<&'input str>> {
         self.stream.uncons()
     }
 
     fn position(&self) -> Self::Position {
-        self.stream.position()
+        let span = self.stream.position();
+
+        Span {
+            start: span.start.absolute,
+            end: span.end.absolute,
+        }
     }
 }
 
@@ -126,7 +132,7 @@ fn as_trait<P: Parser>(p: &mut P) -> &mut Parser<Input = P::Input, Output = P::O
 }
 
 impl<'input, I, Id, F> ParserEnv<I, F>
-    where I: Stream<Item = Token<&'input str>, Range = Token<&'input str>, Position = Span>,
+    where I: Stream<Item = Token<&'input str>, Range = Token<&'input str>, Position = Span<BytePos>>,
           F: IdentEnv<Ident = Id>,
           Id: AstId + Clone + PartialEq + fmt::Debug,
           I::Range: fmt::Debug
@@ -189,13 +195,13 @@ impl<'input, I, Id, F> ParserEnv<I, F>
     fn parse_ident2(&self, input: I) -> ParseResult<(Id, IdentType), I> {
         satisfy(|t: Token<&'input str>| {
                 match t {
-                    Token::Identifier(..) => true,
+                    Token::Ident(..) => true,
                     _ => false,
                 }
             })
             .map(|t| {
                 match t {
-                    Token::Identifier(id, typ) => (self.intern(id), typ),
+                    Token::Ident(id, typ) => (self.intern(id), typ),
                     _ => unreachable!(),
                 }
             })
@@ -229,7 +235,7 @@ impl<'input, I, Id, F> ParserEnv<I, F>
                     let ident_env = self.make_ident.borrow();
                     match ident_env.string(&s).parse() {
                         Ok(prim) => Type::builtin(prim),
-                        Err(()) => Type::id(s.to_id()),
+                        Err(()) => Type::ident(s.to_id()),
                     }
                 }
             })
@@ -315,7 +321,7 @@ impl<'input, I, Id, F> ParserEnv<I, F>
                             })
                         }
                         None => {
-                            let typ = Type::id(untyped_id.clone());
+                            let typ = Type::ident(untyped_id.clone());
                             let short_name = String::from(Name::new(ids.string(&id))
                                 .name()
                                 .as_str());
@@ -379,9 +385,9 @@ impl<'input, I, Id, F> ParserEnv<I, F>
                     })
                     .collect();
                 let return_type = if args.is_empty() {
-                    Type::id(name.clone())
+                    Type::ident(name.clone())
                 } else {
-                    Type::app(Type::id(name.clone()), arg_types)
+                    Type::app(Type::ident(name.clone()), arg_types)
                 };
                 token(Token::Equal)
                     .with(self.typ()
@@ -490,7 +496,7 @@ impl<'input, I, Id, F> ParserEnv<I, F>
                      &mut self.float()
                          .map(|f| loc(Expr::Literal(LiteralEnum::Float(f)))),
                      &mut self.ident()
-                         .map(Expr::Identifier)
+                         .map(Expr::Ident)
                          .map(&loc),
                      &mut self.parser(ParserEnv::<I, F>::record).map(&loc),
                      &mut between(token(Token::Open(Delimiter::Paren)),
@@ -517,18 +523,16 @@ impl<'input, I, Id, F> ParserEnv<I, F>
             .and(self.parser(Self::fields))
             .map(|(expr, fields): (_, Vec<_>)| {
                 debug!("Parsed expr {:?}", expr);
-                fields.into_iter().fold(expr, |expr, field: Located<_>| {
-                    pos::spanned2(span.start,
-                                  field.location,
-                                  Expr::FieldAccess(Box::new(expr), field.value))
+                fields.into_iter().fold(expr, |expr, (id, end)| {
+                    pos::spanned2(span.start, end, Expr::FieldAccess(Box::new(expr), id))
                 })
             })
             .parse_state(input)
 
     }
 
-    // The Location is the end of the field
-    fn fields(&self, input: I) -> ParseResult<Vec<Located<Id>>, I> {
+    // The BytePos is the end of the field
+    fn fields(&self, input: I) -> ParseResult<Vec<(Id, BytePos)>, I> {
         let mut fields = Vec::new();
         let mut input = Consumed::Empty(input);
         loop {
@@ -539,7 +543,7 @@ impl<'input, I, Id, F> ParserEnv<I, F>
             let end = input.clone().into_inner().position().end;
             input = match input.clone().combine(|input| self.ident().parse_lazy(input)) {
                 Ok((field, input)) => {
-                    fields.push(pos::located(end, field));
+                    fields.push((field, end));
                     input
                 }
                 Err(err) => {
@@ -548,7 +552,7 @@ impl<'input, I, Id, F> ParserEnv<I, F>
                     self.errors
                         .borrow_mut()
                         .error(static_error(err.into_inner()));
-                    fields.push(pos::located(end, self.empty_id.clone()));
+                    fields.push((self.empty_id.clone(), end));
                     return Ok((fields, input));
                 }
             };
@@ -557,7 +561,7 @@ impl<'input, I, Id, F> ParserEnv<I, F>
 
     fn op<'a>(&'a self) -> LanguageParser<'a, I, F, &'input str> {
         fn inner<'input, I, Id, F>(_: &ParserEnv<I, F>, input: I) -> ParseResult<&'input str, I>
-            where I: Stream<Item = Token<&'input str>, Range = Token<&'input str>, Position = Span>,
+            where I: Stream<Item = Token<&'input str>, Range = Token<&'input str>, Position = Span<BytePos>>,
                   F: IdentEnv<Ident = Id>,
                   Id: AstId + Clone + PartialEq + fmt::Debug,
                   I::Range: fmt::Debug
@@ -661,7 +665,7 @@ impl<'input, I, Id, F> ParserEnv<I, F>
                                     (Pattern::Constructor(id.clone(), args), input)
                                 })
                         } else {
-                            Ok((Pattern::Identifier(id.clone()), Consumed::Empty(input)))
+                            Ok((Pattern::Ident(id.clone()), Consumed::Empty(input)))
                         }
                     })
                 })
@@ -729,7 +733,7 @@ impl<'input, I, Id, F> ParserEnv<I, F>
     fn binding(&self, input: I) -> ParseResult<Binding<Id>, I> {
         let (name, input) = try!(self.pattern().parse_state(input));
         let (arguments, input) = match name.value {
-            Pattern::Identifier(_) => {
+            Pattern::Ident(_) => {
                 try!(input.combine(|input| many(self.ident()).parse_state(input)))
             }
             _ => (Vec::new(), input),
@@ -858,7 +862,7 @@ pub fn parse_expr<'env, 'input, Id>
 }
 
 fn static_error<'input, I>(error: ParseError<I>) -> Error
-    where I: Stream<Item = Token<&'input str>, Range = Token<&'input str>, Position = Span>
+    where I: Stream<Item = Token<&'input str>, Range = Token<&'input str>, Position = Span<BytePos>>
 {
     let errors = error.errors
         .into_iter()

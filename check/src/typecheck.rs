@@ -8,7 +8,7 @@ use base::scoped_map::ScopedMap;
 use base::ast::{self, Typed, DisplayEnv, MutVisitor};
 use base::error::Errors;
 use base::instantiate::{self, Instantiator};
-use base::pos::{Span, Spanned};
+use base::pos::{BytePos, Span, Spanned};
 use base::symbol::{Symbol, SymbolRef, SymbolModule, Symbols};
 use base::types::{self, RcKind, Type, Generic, Kind};
 use base::types::{KindEnv, TypeEnv, PrimitiveEnv, TcIdent, Alias, AliasData, TcType, TypeVariable};
@@ -124,6 +124,8 @@ impl<I: fmt::Display + AsRef<str>> fmt::Display for TypeError<I> {
     }
 }
 
+pub type SpannedTypeError<Id> = Spanned<TypeError<Id>, BytePos>;
+
 type TcResult<T> = Result<T, TypeError<Symbol>>;
 
 struct Environment<'a> {
@@ -208,13 +210,13 @@ pub struct Typecheck<'a> {
     original_symbols: ScopedMap<Symbol, Symbol>,
     subs: Substitution<TcType>,
     inst: Instantiator,
-    errors: Errors<Spanned<TypeError<Symbol>>>,
+    errors: Errors<SpannedTypeError<Symbol>>,
     /// Type variables `let test: a -> b` (`a` and `b`)
     type_variables: ScopedMap<Symbol, TcType>,
 }
 
 /// Error returned when unsuccessfully typechecking an expression
-pub type Error = Errors<Spanned<TypeError<Symbol>>>;
+pub type Error = Errors<SpannedTypeError<Symbol>>;
 
 impl<'a> Typecheck<'a> {
     /// Create a new typechecker which typechecks expressions in `module`
@@ -238,7 +240,7 @@ impl<'a> Typecheck<'a> {
         }
     }
 
-    fn error(&mut self, span: Span, error: TypeError<Symbol>) -> TcType {
+    fn error(&mut self, span: Span<BytePos>, error: TypeError<Symbol>) -> TcType {
         self.errors.error(Spanned {
             span: span,
             value: error,
@@ -250,7 +252,7 @@ impl<'a> Typecheck<'a> {
         self.environment.get_bool().clone()
     }
 
-    fn find_at(&mut self, span: Span, id: &Symbol) -> TcType {
+    fn find_at(&mut self, span: Span<BytePos>, id: &Symbol) -> TcType {
         match self.find(id) {
             Ok(typ) => typ,
             Err(err) => self.error(span, err),
@@ -462,7 +464,7 @@ impl<'a> Typecheck<'a> {
                   expr: &mut ast::SpannedExpr<TcIdent>)
                   -> Result<TailCall, TypeError<Symbol>> {
         match expr.value {
-            ast::Expr::Identifier(ref mut id) => {
+            ast::Expr::Ident(ref mut id) => {
                 if let Some(new) = self.original_symbols.get(&id.name) {
                     id.name = new.clone();
                 }
@@ -817,7 +819,7 @@ impl<'a> Typecheck<'a> {
                 }
                 match_type
             }
-            ast::Pattern::Identifier(ref mut id) => {
+            ast::Pattern::Ident(ref mut id) => {
                 self.stack_var(id.id().clone(), match_type.clone());
                 id.typ = match_type.clone();
                 match_type
@@ -856,7 +858,7 @@ impl<'a> Typecheck<'a> {
                 };
                 self.typecheck_pattern(&mut bind.name, typ);
                 if let ast::Expr::Lambda(ref mut lambda) = bind.expression.value {
-                    if let ast::Pattern::Identifier(ref name) = bind.name.value {
+                    if let ast::Pattern::Ident(ref name) = bind.name.value {
                         lambda.id.name = name.name.clone();
                     }
                 }
@@ -1001,7 +1003,7 @@ impl<'a> Typecheck<'a> {
 
     fn finish_binding(&mut self, level: u32, bind: &mut ast::Binding<TcIdent>) {
         match bind.name.value {
-            ast::Pattern::Identifier(ref mut id) => {
+            ast::Pattern::Ident(ref mut id) => {
                 if let Some(typ) = self.finish_type(level, &id.typ) {
                     id.typ = typ;
                 }
@@ -1180,7 +1182,7 @@ impl<'a> Typecheck<'a> {
                                         alias.typ.clone().expect("Type"))
                         })
                 }
-                Type::Id(ref id) => {
+                Type::Ident(ref id) => {
                     // Substitute the Id by its alias if possible
                     let new_id = self.original_symbols
                         .get(id)
@@ -1191,7 +1193,7 @@ impl<'a> Typecheck<'a> {
                         .or_else(|| if id == new_id {
                             None
                         } else {
-                            Some(Type::id(new_id.clone()))
+                            Some(Type::ident(new_id.clone()))
                         })
                 }
                 Type::Variants(ref variants) => {
@@ -1222,7 +1224,7 @@ impl<'a> Typecheck<'a> {
     }
 
     fn merge_signature(&mut self,
-                       span: Span,
+                       span: Span<BytePos>,
                        level: u32,
                        expected: &TcType,
                        mut actual: TcType)
@@ -1250,7 +1252,7 @@ impl<'a> Typecheck<'a> {
         }
     }
 
-    fn unify_span(&mut self, span: Span, expected: &TcType, actual: TcType) -> TcType {
+    fn unify_span(&mut self, span: Span<BytePos>, expected: &TcType, actual: TcType) -> TcType {
         match self.unify(expected, actual) {
             Ok(typ) => typ,
             Err(err) => {

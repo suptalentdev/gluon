@@ -106,7 +106,7 @@ pub type Error<Id> = CombineError<Token<Id>, Token<Id>>;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Token<Id> {
-    Identifier(Id, IdentType),
+    Ident(Id, IdentType),
     Operator(Id),
     String(String),
     Char(char),
@@ -143,7 +143,7 @@ impl<Id> fmt::Display for Token<Id> {
         use self::Token::*;
         use self::Delimiter::*;
         let s = match *self {
-            Identifier(..) => "Identifier",
+            Ident(..) => "Ident",
             Operator(..) => "Operator",
             String(..) => "String",
             Char(..) => "Char",
@@ -188,7 +188,7 @@ impl<Id> Token<Id> {
     {
         use self::Token::*;
         match *self {
-            Identifier(ref id, b) => Identifier(f(id), b),
+            Ident(ref id, b) => Ident(f(id), b),
             Operator(ref id) => Operator(f(id)),
             String(ref s) => String(s.clone()),
             Char(c) => Char(c),
@@ -222,7 +222,7 @@ impl<Id> Token<Id> {
     }
 }
 
-pub type SpannedToken<Id> = Spanned<Token<Id>>;
+pub type SpannedToken<Id> = Spanned<Token<Id>, Location>;
 
 #[derive(Clone, Debug)]
 pub struct Offside {
@@ -320,7 +320,7 @@ pub struct Lexer<'input, I>
     /// Since the parser will call `position` before retrieving the token we need to cache one
     /// token so the span can be returned for it
     next_token: Option<SpannedToken<&'input str>>,
-    end_span: Option<Span>,
+    end_span: Option<Span<Location>>,
 }
 
 impl<'input, I> Lexer<'input, I>
@@ -396,7 +396,7 @@ impl<'input, I> Lexer<'input, I>
                    input: LocatedStream<I>)
                    -> ParseResult<Token<&'input str>, LocatedStream<I>> {
         self.parser(Lexer::parse_ident2)
-            .map(|x| Token::Identifier(x.0, x.1))
+            .map(|x| Token::Ident(x.0, x.1))
             .parse_state(input)
     }
 
@@ -426,7 +426,7 @@ impl<'input, I> Lexer<'input, I>
 
     fn id_to_keyword(&self, id: Token<&'input str>) -> Token<&'input str> {
         let t = match id {
-            Token::Identifier(id, _) => {
+            Token::Ident(id, _) => {
                 match id {
                     "let" => Some(Token::Let),
                     "type" => Some(Token::Type),
@@ -659,7 +659,7 @@ impl<'input, I> Lexer<'input, I>
                     -> SpannedToken<&'input str> {
         let span = token.span;
         self.unprocessed_tokens.push(token);
-        Spanned {
+        SpannedToken {
             span: span,
             value: layout_token,
         }
@@ -668,7 +668,7 @@ impl<'input, I> Lexer<'input, I>
     fn uncons_next(&mut self) -> Result<SpannedToken<&'input str>, Error<&'input str>> {
         let token = self.next_token();
         match self.layout_independent_token(token) {
-            Ok(Spanned { value: Token::EOF, .. }) => Err(Error::end_of_input()),
+            Ok(SpannedToken { value: Token::EOF, .. }) => Err(Error::end_of_input()),
             Ok(token) => {
                 debug!("Lex {:?}", token);
                 Ok(token)
@@ -949,12 +949,11 @@ fn scan_for_next_block<'input, 'a, I>(lexer: &mut Lexer<'input, I>,
 
 impl<'input, I> StreamOnce for Lexer<'input, I>
     where I: RangeStream<Item = char, Range = &'input str> + 'input,
-
           I::Range: fmt::Debug
 {
     type Item = Token<&'input str>;
     type Range = Token<&'input str>;
-    type Position = Span;
+    type Position = Span<Location>;
 
     fn uncons(&mut self) -> Result<Token<&'input str>, Error<&'input str>> {
         match self.next_token.take() {

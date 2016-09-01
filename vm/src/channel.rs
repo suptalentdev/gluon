@@ -81,7 +81,7 @@ impl<T: VmType> VmType for Sender<T>
     type Type = Sender<T::Type>;
     fn make_type(vm: &Thread) -> TcType {
         let symbol = vm.global_env().get_env().find_type_info("Sender").unwrap().name.clone();
-        Type::app(Type::id(symbol), vec![T::make_type(vm)])
+        Type::app(Type::ident(symbol), vec![T::make_type(vm)])
     }
 }
 
@@ -91,7 +91,7 @@ impl<T: VmType> VmType for Receiver<T>
     type Type = Receiver<T::Type>;
     fn make_type(vm: &Thread) -> TcType {
         let symbol = vm.global_env().get_env().find_type_info("Receiver").unwrap().name.clone();
-        Type::app(Type::id(symbol), vec![T::make_type(vm)])
+        Type::app(Type::ident(symbol), vec![T::make_type(vm)])
     }
 }
 
@@ -123,29 +123,28 @@ fn send(sender: &Sender<Generic<A>>, value: Generic<A>) -> Result<(), ()> {
 }
 
 fn resume(vm: &Thread) -> Status {
-    let mut context = vm.context();
-    let value = StackFrame::current(&mut context.stack)[0];
-    match value {
+    let mut stack = vm.current_frame();
+    match stack[0] {
         Value::Thread(child) => {
-            let lock = StackFrame::current(&mut context.stack).into_lock();
-            drop(context);
+            let lock = stack.into_lock();
             let result = child.resume();
-            context = vm.context();
-            context.stack.release_lock(lock);
+            let mut s = vm.get_stack();
+            s.release_lock(lock);
+            stack = StackFrame::current(s);
             match result {
                 Ok(()) |
                 Err(Error::Yield) => {
                     let value: Result<(), &str> = Ok(());
-                    value.status_push(vm, &mut context)
+                    value.status_push(vm, &mut stack.stack)
                 }
                 Err(Error::Dead) => {
                     let value: Result<(), &str> = Err("Attempted to resume a dead thread");
-                    value.status_push(vm, &mut context)
+                    value.status_push(vm, &mut stack.stack)
                 }
                 Err(err) => {
                     let fmt = format!("{}", err);
-                    let result = Value::String(context.alloc_ignore_limit(&fmt[..]));
-                    context.stack.push(result);
+                    let result = Value::String(vm.alloc_ignore_limit(&fmt[..]));
+                    stack.push(result);
                     Status::Error
                 }
             }
@@ -167,15 +166,15 @@ fn spawn<'vm>(value: WithVM<'vm, Function<&'vm Thread, fn(())>>) -> MaybeError<R
 fn spawn_<'vm>(value: WithVM<'vm, Function<&'vm Thread, fn(())>>) -> VmResult<RootedThread> {
     let thread = try!(value.vm.new_thread());
     {
-        let mut context = thread.context();
+        let mut stack = thread.get_stack();
         let callable = match value.value.value() {
             Value::Closure(c) => State::Closure(c),
             Value::Function(c) => State::Extern(c),
             _ => State::Unknown,
         };
-        try!(value.value.push(value.vm, &mut context));
-        context.stack.push(Value::Int(0));
-        StackFrame::current(&mut context.stack).enter_scope(1, callable);
+        try!(value.value.push(value.vm, &mut stack));
+        stack.push(Value::Int(0));
+        StackFrame::current(stack).enter_scope(1, callable);
     }
     Ok(thread)
 }

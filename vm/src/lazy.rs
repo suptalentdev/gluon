@@ -11,7 +11,6 @@ use api::generic::A;
 use vm::{Status, Thread};
 use Result;
 use value::Value;
-use stack::StackFrame;
 use thread::ThreadInternal;
 
 pub struct Lazy<T> {
@@ -53,33 +52,31 @@ impl<T> VmType for Lazy<T>
     fn make_type(vm: &Thread) -> TcType {
         let env = vm.global_env().get_env();
         let symbol = env.find_type_info("Lazy").unwrap().name.clone();
-        let ctor = Type::id(symbol);
+        let ctor = Type::ident(symbol);
         types::Type::app(ctor, vec![T::make_type(vm)])
     }
 }
 
 fn force(vm: &Thread) -> Status {
-    let mut context = vm.context();
-    let value = StackFrame::current(&mut context.stack)[0];
-    match value {
+    let mut stack = vm.current_frame();
+    match stack[0] {
         Value::Userdata(lazy) => {
             let lazy = lazy.downcast_ref::<Lazy<A>>().expect("Lazy");
             let value = *lazy.value.lock().unwrap();
             match value {
                 Lazy_::Blackhole => {
-                    let result = Value::String(context.alloc_ignore_limit("<<loop>>"));
-                    context.stack.push(result);
+                    let result = Value::String(vm.alloc_ignore_limit("<<loop>>"));
+                    stack.push(result);
                     Status::Error
                 }
                 Lazy_::Thunk(value) => {
-                    context.stack.push(value);
-                    context.stack.push(Value::Int(0));
+                    stack.push(value);
+                    stack.push(Value::Int(0));
                     *lazy.value.lock().unwrap() = Lazy_::Blackhole;
-                    let result = vm.call_function(context, 1);
+                    let result = vm.call_function(stack, 1);
                     match result {
                         Ok(None) => panic!("Expected stack"),
-                        Ok(Some(mut context)) => {
-                            let mut stack = StackFrame::current(&mut context.stack);
+                        Ok(Some(mut stack)) => {
                             let value = stack.pop();
                             while stack.len() > 1 {
                                 stack.pop();
@@ -89,16 +86,16 @@ fn force(vm: &Thread) -> Status {
                             Status::Ok
                         }
                         Err(err) => {
-                            let mut context = vm.context();
+                            let mut stack = vm.get_stack();
                             let err = format!("{}", err);
-                            let result = Value::String(context.alloc_ignore_limit(&err[..]));
-                            context.stack.push(result);
+                            let result = Value::String(vm.alloc_ignore_limit(&err[..]));
+                            stack.push(result);
                             Status::Error
                         }
                     }
                 }
                 Lazy_::Value(value) => {
-                    StackFrame::current(&mut context.stack)[0] = value;
+                    stack[0] = value;
                     Status::Ok
                 }
             }

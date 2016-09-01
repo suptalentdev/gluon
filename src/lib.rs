@@ -25,11 +25,11 @@ use std::string::String as StdString;
 use std::env;
 
 use base::ast;
-use base::error::Errors;
-use base::types::TcType;
-use base::symbol::{Name, NameBuf, Symbol, Symbols, SymbolModule};
+use base::error::{Errors, InFile};
 use base::metadata::Metadata;
-
+use base::symbol::{Name, NameBuf, Symbol, Symbols, SymbolModule};
+use base::types::TcType;
+use check::typecheck::TypeError;
 use vm::Variants;
 use vm::api::generic::A;
 use vm::api::{Getable, VmType, Generic, IO};
@@ -50,7 +50,7 @@ quick_error! {
             from()
         }
         /// Error found when typechecking gluon code
-        Typecheck(err: ::base::error::InFile<::check::typecheck::TypeError<Symbol>>) {
+        Typecheck(err: InFile<TypeError<Symbol>>) {
             description(err.description())
             display("{}", err)
             from()
@@ -310,7 +310,10 @@ pub mod compiler_pipeline {
             let CompileValue(_, typ, mut function) = self;
             function.id = Symbol::new(name);
             let function = try!(vm.global_env().new_function(function));
-            let closure = try!(vm.context().alloc(ClosureDataDef(function, &[])));
+            let closure = {
+                let stack = vm.current_frame();
+                try!(vm.alloc(&stack.stack, ClosureDataDef(function, &[])))
+            };
             let value = try!(vm.call_module(&typ, closure));
             Ok((vm.root_value_ref(value), typ))
         }
@@ -325,7 +328,10 @@ pub mod compiler_pipeline {
             let CompileValue(mut expr, typ, function) = self;
             let metadata = metadata::metadata(&*vm.get_env(), &mut expr);
             let function = try!(vm.global_env().new_function(function));
-            let closure = try!(vm.context().alloc(ClosureDataDef(function, &[])));
+            let closure = {
+                let stack = vm.current_frame();
+                try!(vm.alloc(&stack.stack, ClosureDataDef(function, &[])))
+            };
             let value = try!(vm.call_module(&typ, closure));
             try!(vm.global_env().set_global(function.name.clone(), typ, metadata, value));
             Ok(())
@@ -390,11 +396,13 @@ impl Compiler {
                                expected_type: Option<&TcType>)
                                -> Result<TcType> {
         use check::typecheck::Typecheck;
-        use base::error;
+
         let env = vm.get_env();
         let mut tc = Typecheck::new(file.into(), &mut self.symbols, &*env);
+
         let typ = try!(tc.typecheck_expr_expected(expr, expected_type)
-            .map_err(|err| error::InFile::new(StdString::from(file), expr_str, err)));
+            .map_err(|err| InFile::new(file, expr_str, err)));
+
         Ok(typ)
     }
 
@@ -458,7 +466,10 @@ impl Compiler {
         let (expr, typ, metadata) = try!(self.extract_metadata(vm, filename, input));
         let function = try!(self.compile_script(vm, filename, &expr));
         let function = try!(vm.global_env().new_function(function));
-        let closure = try!(vm.context().alloc(ClosureDataDef(function, &[])));
+        let closure = {
+            let stack = vm.current_frame();
+            try!(vm.alloc(&stack.stack, ClosureDataDef(function, &[])))
+        };
         let value = try!(vm.call_module(&typ, closure));
         try!(vm.global_env().set_global(function.name.clone(), typ, metadata, value));
         info!("Loaded module `{}` filename", filename);
@@ -488,7 +499,10 @@ impl Compiler {
         let mut function = try!(self.compile_script(vm, name, &expr));
         function.id = Symbol::new(name);
         let function = try!(vm.global_env().new_function(function));
-        let closure = try!(vm.context().alloc(ClosureDataDef(function, &[])));
+        let closure = {
+            let stack = vm.current_frame();
+            try!(vm.alloc(&stack.stack, ClosureDataDef(function, &[])))
+        };
         let value = try!(vm.call_module(&typ, closure));
         Ok((vm.root_value_ref(value), typ))
     }

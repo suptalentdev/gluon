@@ -5,7 +5,7 @@ extern crate gluon_parser as parser;
 extern crate gluon_check as check;
 
 use base::ast::{self, Expr, Pattern, Typed};
-use base::pos::{BytePos, CharPos, Location, Span};
+use base::pos::{BytePos, Span};
 use base::types::{self, Field, Generic, Kind, Type};
 
 mod support;
@@ -278,7 +278,7 @@ in eq_Int
     let result = support::typecheck(text);
     let bool = Type::alias(support::intern_unscoped("Bool"),
                            vec![],
-                           Type::id(support::intern_unscoped("Bool")));
+                           Type::ident(support::intern_unscoped("Bool")));
     let eq = alias("Eq",
                    &["a"],
                    Type::record(vec![],
@@ -721,16 +721,8 @@ in f "123"
     assert_eq!(err.errors.len(), 1);
     assert_eq!(err.errors[0].span,
                Span {
-                   start: Location {
-                       line: 3,
-                       column: CharPos(6),
-                       absolute: BytePos(26),
-                   },
-                   end: Location {
-                       line: 3,
-                       column: CharPos(11),
-                       absolute: BytePos(31),
-                   },
+                   start: BytePos(26),
+                   end: BytePos(31),
                });
 }
 
@@ -767,14 +759,14 @@ test 1
     let call_id = match call.value {
         Expr::Call(ref f, _) => {
             match f.value {
-                Expr::Identifier(ref id) => id,
+                Expr::Ident(ref id) => id,
                 _ => panic!(),
             }
         }
         _ => panic!(),
     };
     let test_id = match bind.name.value {
-        Pattern::Identifier(ref id) => id,
+        Pattern::Ident(ref id) => id,
         _ => panic!(),
     };
     assert_eq!(test_id.name, call_id.name);
