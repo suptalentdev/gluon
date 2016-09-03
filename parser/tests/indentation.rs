@@ -15,7 +15,8 @@ use parser::parse_string;
 use parser::lexer::Token;
 
 fn parse(text: &str) -> Result<SpannedExpr<String>, Errors<::parser::Error>> {
-    parse_string(&mut EmptyEnv::new(), text).map_err(|(_, err)| err)
+    parse_string(&mut EmptyEnv::new(), text)
+        .map_err(|(_, err)| err)
 }
 
 #[test]
@@ -69,7 +70,7 @@ y
                                     errors: vec![Error::Unexpected(Info::Token(Token::Integer(2))),
                                                  Error::Expected("`in` or an expression in the \
                                                                   same column as the `let`"
-                                                     .into())],
+                                                                     .into())],
                                 }],
                }));
 }
