@@ -39,13 +39,13 @@ fn let_(s: &str, e: SpExpr, b: SpExpr) -> SpExpr {
 
 fn let_a(s: &str, args: &[&str], e: SpExpr, b: SpExpr) -> SpExpr {
     no_loc(Expr::LetBindings(vec![ValueBinding {
-                              comment: None,
-                              name: no_loc(Pattern::Ident(intern(s))),
-                              typ: None,
-                              arguments: args.iter().map(|i| intern(i)).collect(),
-                              expression: e,
-                          }],
-                     Box::new(b)))
+                                      comment: None,
+                                      name: no_loc(Pattern::Ident(intern(s))),
+                                      typ: None,
+                                      arguments: args.iter().map(|i| intern(i)).collect(),
+                                      expression: e,
+                                  }],
+                             Box::new(b)))
 }
 
 fn id(s: &str) -> SpExpr {
@@ -61,10 +61,9 @@ fn field(s: &str, typ: AstType<String>) -> Field<String> {
 
 fn typ(s: &str) -> AstType<String> {
     assert!(s.len() != 0);
-    let is_var = s.chars().next().unwrap().is_lowercase();
     match s.parse() {
         Ok(b) => Type::builtin(b),
-        Err(()) if is_var => generic_ty(s),
+        Err(()) if s.starts_with(char::is_lowercase) => generic_ty(s),
         Err(()) => Type::ident(intern(s)),
     }
 }
@@ -108,7 +107,11 @@ fn lambda(name: &str, args: Vec<String>, body: SpExpr) -> SpExpr {
     }))
 }
 
-fn type_decl(name: String, args: Vec<Generic<String>>, typ: AstType<String>, body: SpExpr) -> SpExpr {
+fn type_decl(name: String,
+             args: Vec<Generic<String>>,
+             typ: AstType<String>,
+             body: SpExpr)
+             -> SpExpr {
     type_decls(vec![TypeBinding {
                         comment: None,
                         name: name.clone(),
@@ -366,13 +369,14 @@ fn let_pattern() {
                                                  name: no_loc(Pattern::Record {
                                                      id: String::new(),
                                                      types: Vec::new(),
-                                                     fields: vec![(intern("x"), None), (intern("y"), None)],
+                                                     fields: vec![(intern("x"), None),
+                                                                  (intern("y"), None)],
                                                  }),
                                                  typ: None,
                                                  arguments: vec![],
                                                  expression: id("test"),
                                              }],
-                                Box::new(id("x")))));
+                                        Box::new(id("x")))));
 }
 
 #[test]
@@ -529,7 +533,7 @@ id
                                                  arguments: vec![intern("x")],
                                                  expression: id("x"),
                                              }],
-                                Box::new(id("id")))));
+                                        Box::new(id("id")))));
 }
 
 #[test]
@@ -630,7 +634,7 @@ test
                                                    end: BytePos(0),
                                                },
                                                value: Expr::Projection(Box::new(id("test")),
-                                                                        intern("")),
+                                                                       intern("")),
                                            },
                                            id("test")]),
                }));
@@ -649,9 +653,10 @@ x
                                                     comment: None,
                                                     name: no_loc(Pattern::Ident(intern("x"))),
                                                     typ: Some(Type::app(typ("->"),
-                                                                        vec![typ("Int"), typ("Int")])),
+                                                                        vec![typ("Int"),
+                                                                             typ("Int")])),
                                                     arguments: vec![],
                                                     expression: id("x"),
                                                 }],
-                                   Box::new(id("x"))))));
+                                           Box::new(id("x"))))));
 }
