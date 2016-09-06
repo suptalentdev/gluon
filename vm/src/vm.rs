@@ -37,21 +37,9 @@ fn new_bytecode(gc: &mut Gc,
                            inner_functions,
                            strings,
                            module_globals,
-                           records,
                            .. } = f;
     let fs = try!(inner_functions.into_iter()
         .map(|inner| new_bytecode(gc, vm, inner))
-        .collect());
-
-    let globals = module_globals.into_iter()
-        .map(|index| vm.env.read().unwrap().globals[index.as_ref()].value)
-        .collect();
-    let records = try!(records.into_iter()
-        .map(|vec| {
-            vec.into_iter()
-                .map(|field| Ok(try!(vm.interner.write().unwrap().intern(gc, field.as_ref()))))
-                .collect::<Result<_>>()
-        })
         .collect());
     gc.alloc(Move(BytecodeFunction {
         name: id,
@@ -59,8 +47,9 @@ fn new_bytecode(gc: &mut Gc,
         instructions: instructions,
         inner_functions: fs,
         strings: strings,
-        globals: globals,
-        records: records,
+        globals: module_globals.into_iter()
+            .map(|index| vm.env.read().unwrap().globals[index.as_ref()].value)
+            .collect(),
     }))
 }
 
@@ -266,18 +255,23 @@ impl VmEnv {
             };
             // HACK Can't return the data directly due to the use of cow on the type
             let next_type = map_cow_option(typ.clone(), |typ| {
-                typ.field_iter()
-                    .enumerate()
-                    .find(|&(_, field)| field.name.as_ref() == field_name)
-                    .map(|(index, field)| {
-                        match value {
-                            Value::Data(data) => {
-                                value = data.fields[index];
-                                &field.typ
-                            }
-                            _ => panic!("Unexpected value {:?}", value),
-                        }
-                    })
+                match **typ {
+                    Type::Record { ref fields, .. } => {
+                        fields.iter()
+                            .enumerate()
+                            .find(|&(_, field)| field.name.as_ref() == field_name)
+                            .map(|(index, field)| {
+                                match value {
+                                    Value::Data(data) => {
+                                        value = data.fields[index];
+                                        &field.typ
+                                    }
+                                    _ => panic!("Unexpected value {:?}", value),
+                                }
+                            })
+                    }
+                    _ => None,
+                }
             });
             typ = try!(next_type.ok_or_else(move || {
                 Error::UndefinedField(typ.into_owned(), field_name.into())
@@ -343,7 +337,7 @@ impl GlobalVmState {
             // Insert aliases so that `find_info` can retrieve information about the primitives
             env.type_infos.id_to_type.insert(name.into(),
                                              Alias::from(AliasData {
-                                                 name: Symbol::from(name),
+                                                 name: Symbol::new(name),
                                                  args: Vec::new(),
                                                  typ: None,
                                              }));
@@ -409,7 +403,7 @@ impl GlobalVmState {
             return g.clone();
         }
         let g: ArcType = Type::generic(Generic {
-            id: Symbol::from(name),
+            id: Symbol::new(name),
             kind: Kind::typ(),
         });
         generics.insert(name.into(), g.clone());
@@ -431,7 +425,7 @@ impl GlobalVmState {
                     _ => unreachable!(),
                 })
                 .collect();
-            let n = Symbol::from(name);
+            let n = Symbol::new(name);
             let typ: ArcType = Type::app(Type::ident(n.clone()), arg_types);
             self.typeids
                 .write()

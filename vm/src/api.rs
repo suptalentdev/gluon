@@ -651,7 +651,7 @@ impl<'vm, T> Pushable<'vm> for Vec<T>
             }
         }
         let result = {
-            let Context { ref mut gc, ref stack, .. } = *context;
+            let Context { ref mut gc, ref stack } = *context;
             let values = &stack[stack.len() - len..];
             try!(thread::alloc(gc,
                                thread,
@@ -776,22 +776,22 @@ impl<'vm, T: Getable<'vm>, E: Getable<'vm>> Getable<'vm> for StdResult<T, E> {
     }
 }
 
-pub enum MaybeError<T, E> {
-    Ok(T),
-    Err(E),
+pub enum RuntimeResult<T, E> {
+    Return(T),
+    Panic(E),
 }
 
-impl<T: VmType, E> VmType for MaybeError<T, E> {
+impl<T: VmType, E> VmType for RuntimeResult<T, E> {
     type Type = T::Type;
     fn make_type(vm: &Thread) -> ArcType {
         T::make_type(vm)
     }
 }
-impl<'vm, T: Pushable<'vm>, E: fmt::Display> Pushable<'vm> for MaybeError<T, E> {
+impl<'vm, T: Pushable<'vm>, E: fmt::Display> Pushable<'vm> for RuntimeResult<T, E> {
     fn push(self, vm: &'vm Thread, context: &mut Context) -> Result<()> {
         match self {
-            MaybeError::Ok(value) => value.push(vm, context),
-            MaybeError::Err(err) => Err(Error::Message(format!("{}", err))),
+            RuntimeResult::Return(value) => value.push(vm, context),
+            RuntimeResult::Panic(err) => Err(Error::Message(format!("{}", err))),
         }
     }
 }
@@ -966,7 +966,7 @@ macro_rules! define_tuple {
             fn make_type(vm: &Thread) -> ArcType {
                 let fields = vec![$(
                     types::Field {
-                        name: Symbol::from(stringify!($id)),
+                        name: Symbol::new(stringify!($id)),
                         typ: $id::make_type(vm),
                     }
                 ),+];
@@ -1087,7 +1087,7 @@ pub mod record {
     {
         fn field_types(vm: &Thread, fields: &mut Vec<types::Field<Symbol, ArcType>>) {
             fields.push(types::Field {
-                name: Symbol::from(F::name()),
+                name: Symbol::new(F::name()),
                 typ: H::make_type(vm),
             });
             T::field_types(vm, fields);
@@ -1261,7 +1261,7 @@ impl<'vm, F> Pushable<'vm> for Primitive<F>
 {
     fn push(self, thread: &'vm Thread, context: &mut Context) -> Result<()> {
         let extern_function = Box::new(self.function);
-        let id = Symbol::from(self.name);
+        let id = Symbol::new(self.name);
         let value = Value::Function(try!(context.alloc_with(thread,
                                                             Move(ExternFunction {
                                                                 id: id,
@@ -1285,7 +1285,7 @@ impl CPrimitive {
                       id: &str)
                       -> CPrimitive {
         CPrimitive {
-            id: Symbol::from(id),
+            id: Symbol::new(id),
             function: function,
             arguments: arguments,
         }
@@ -1430,7 +1430,7 @@ where $($args: Getable<'vm> + VmType + 'vm,)* R: Pushable<'vm> +  VmType + 'vm {
                     ::<Box<Fn(&'vm Thread) -> Status + Send + Sync>,
                        Box<Fn(&Thread) -> Status + Send + Sync>>(f)
         };
-        let id = Symbol::from("<extern>");
+        let id = Symbol::new("<extern>");
         let value = Value::Function(try!(context.alloc_with(thread, Move(
             ExternFunction {
                 id: id,
