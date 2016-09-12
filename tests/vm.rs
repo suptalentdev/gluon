@@ -246,9 +246,16 @@ let f a b c = c
 4i32
 }
 
+test_expr!{ io print_int,
+r"
+io.print_int 123
+",
+()
+}
+
 test_expr!{ no_io_eval,
 r#"
-let x = io_flat_map (\x -> error "NOOOOOOOO") (io.println "1")
+let x = io_flat_map (\x -> error "NOOOOOOOO") (io.print_int 1)
 in { x }
 "#
 }
@@ -442,7 +449,7 @@ b && array.length arr2 #Int== array.length arr #Int* 2
 true
 }
 
-test_expr!{ prelude true_branch_not_affected_by_false_branch,
+test_expr!{ prelude true_branch_not_affected_by_false_branc,
 r#"
 if True then
     let x = 1
@@ -564,7 +571,7 @@ fn run_expr_int() {
 }
 
 test_expr!{ io run_expr_io,
-r#"io_flat_map (\x -> io_pure 100) (io.run_expr "io.print \"123\" ") "#,
+r#"io_flat_map (\x -> io_pure 100) (io.run_expr "io.print_int 123") "#,
 100i32
 }
 
