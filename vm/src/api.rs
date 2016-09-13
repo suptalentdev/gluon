@@ -1275,19 +1275,19 @@ impl<'vm, F> Pushable<'vm> for Primitive<F>
 
 pub struct CPrimitive {
     function: extern "C" fn(&Thread) -> Status,
-    args: VmIndex,
+    arguments: VmIndex,
     id: Symbol,
 }
 
 impl CPrimitive {
     pub unsafe fn new(function: extern "C" fn(&Thread) -> Status,
-                      args: VmIndex,
+                      arguments: VmIndex,
                       id: &str)
                       -> CPrimitive {
         CPrimitive {
             id: Symbol::from(id),
             function: function,
-            args: args,
+            arguments: arguments,
         }
     }
 }
@@ -1305,7 +1305,7 @@ impl<'vm> Pushable<'vm> for CPrimitive {
         let value = try!(context.alloc_with(thread,
                                             Move(ExternFunction {
                                                 id: self.id,
-                                                args: self.args,
+                                                args: self.arguments,
                                                 function: extern_function,
                                             })));
         context.stack.push(Value::Function(value));

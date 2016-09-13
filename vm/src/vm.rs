@@ -8,7 +8,7 @@ use std::usize;
 use base::metadata::{Metadata, MetadataEnv};
 use base::symbol::{Name, Symbol, SymbolRef};
 use base::types::{Alias, AliasData, ArcType, Generic, Type, Kind, KindEnv, TypeEnv, PrimitiveEnv,
-                  ArcKind};
+                  RcKind};
 use base::fnv::FnvMap;
 
 use macros::MacroEnv;
@@ -122,7 +122,7 @@ impl CompilerEnv for VmEnv {
 }
 
 impl KindEnv for VmEnv {
-    fn find_kind(&self, type_name: &SymbolRef) -> Option<ArcKind> {
+    fn find_kind(&self, type_name: &SymbolRef) -> Option<RcKind> {
         self.type_infos
             .find_kind(type_name)
     }

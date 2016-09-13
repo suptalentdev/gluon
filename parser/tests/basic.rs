@@ -44,10 +44,10 @@ fn let_a(s: &str, args: &[&str], e: SpExpr, b: SpExpr) -> SpExpr {
                                       comment: None,
                                       name: no_loc(Pattern::Ident(TypedIdent::new(intern(s)))),
                                       typ: Type::hole(),
-                                      args: args.iter()
+                                      arguments: args.iter()
                                           .map(|i| TypedIdent::new(intern(i)))
                                           .collect(),
-                                      expr: e,
+                                      expression: e,
                                   }],
                              Box::new(b)))
 }
@@ -97,7 +97,7 @@ fn case(e: SpExpr, alts: Vec<(Pattern<String>, SpExpr)>) -> SpExpr {
                            .map(|(p, e)| {
                                Alternative {
                                    pattern: no_loc(p),
-                                   expr: e,
+                                   expression: e,
                                }
                            })
                            .collect()))
@@ -106,7 +106,7 @@ fn case(e: SpExpr, alts: Vec<(Pattern<String>, SpExpr)>) -> SpExpr {
 fn lambda(name: &str, args: Vec<String>, body: SpExpr) -> SpExpr {
     no_loc(Expr::Lambda(Lambda {
         id: TypedIdent::new(intern(name)),
-        args: args.into_iter().map(|id| TypedIdent::new(id)).collect(),
+        arguments: args.into_iter().map(|id| TypedIdent::new(id)).collect(),
         body: Box::new(body),
     }))
 }
@@ -149,7 +149,7 @@ fn field_access(expr: SpExpr, field: &str) -> SpExpr {
 fn array(fields: Vec<SpExpr>) -> SpExpr {
     no_loc(Expr::Array(Array {
         typ: Type::hole(),
-        exprs: fields,
+        expressions: fields,
     }))
 }
 
@@ -380,8 +380,8 @@ fn let_pattern() {
                                                                   (intern("y"), None)],
                                                  }),
                                                  typ: Type::hole(),
-                                                 args: vec![],
-                                                 expr: id("test"),
+                                                 arguments: vec![],
+                                                 expression: id("test"),
                                              }],
                                         Box::new(id("x")))));
 }
@@ -537,8 +537,8 @@ id
                                                  comment: Some("The identity function".into()),
                                                  name: no_loc(Pattern::Ident(TypedIdent::new(intern("id")))),
                                                  typ: Type::hole(),
-                                                 args: vec![TypedIdent::new(intern("x"))],
-                                                 expr: id("x"),
+                                                 arguments: vec![TypedIdent::new(intern("x"))],
+                                                 expression: id("x"),
                                              }],
                                         Box::new(id("id")))));
 }
@@ -662,8 +662,8 @@ x
                                                     name: no_loc(Pattern::Ident(TypedIdent::new(intern("x")))),
                                                     typ: Type::app(typ("->"),
                                                                    vec![typ("Int"), typ("Int")]),
-                                                    args: vec![],
-                                                    expr: id("x"),
+                                                    arguments: vec![],
+                                                    expression: id("x"),
                                                 }],
                                            Box::new(id("x"))))));
 }

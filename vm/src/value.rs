@@ -229,7 +229,7 @@ impl Traverseable for Callable {
 #[derive(Debug)]
 pub struct PartialApplicationData {
     pub function: Callable,
-    pub args: Array<Value>,
+    pub arguments: Array<Value>,
 }
 
 impl PartialEq for PartialApplicationData {
@@ -241,7 +241,7 @@ impl PartialEq for PartialApplicationData {
 impl Traverseable for PartialApplicationData {
     fn traverse(&self, gc: &mut Gc) {
         self.function.traverse(gc);
-        self.args.traverse(gc);
+        self.arguments.traverse(gc);
     }
 }
 
@@ -264,7 +264,7 @@ unsafe impl<'b> DataDef for PartialApplicationDataDef<'b> {
         unsafe {
             let result = &mut *result.as_mut_ptr();
             result.function = self.0;
-            result.args.initialize(self.1.iter().cloned());
+            result.arguments.initialize(self.1.iter().cloned());
             result
         }
     }
@@ -343,7 +343,10 @@ impl fmt::Debug for Value {
                             Callable::Closure(_) => "<CLOSURE>",
                             Callable::Extern(_) => "<EXTERN>",
                         };
-                        write!(f, "<App {:?}{:?}>", name, LevelSlice(level - 1, &app.args))
+                        write!(f,
+                               "<App {:?}{:?}>",
+                               name,
+                               LevelSlice(level - 1, &app.arguments))
                     }
                     Value::Userdata(ref data) => write!(f, "<Userdata {:?}>", &**data),
                     Value::Thread(_) => write!(f, "<thread>"),
@@ -824,7 +827,7 @@ fn deep_clone_app(data: GcPtr<PartialApplicationData>,
                   gc: &mut Gc)
                   -> Result<GcPtr<PartialApplicationData>> {
     let result = try!(deep_clone_ptr(data, visited, |data| {
-        let ptr = try!(gc.alloc(PartialApplicationDataDef(data.function, &data.args)));
+        let ptr = try!(gc.alloc(PartialApplicationDataDef(data.function, &data.arguments)));
         Ok((PartialApplication(ptr), ptr))
     }));
     match result {
@@ -832,9 +835,9 @@ fn deep_clone_app(data: GcPtr<PartialApplicationData>,
         Ok(_) => unreachable!(),
         Err(mut new_data) => {
             {
-                let new_args = unsafe { &mut new_data.as_mut().args };
-                for (new, old) in new_args.iter_mut()
-                    .zip(&data.args) {
+                let new_arguments = unsafe { &mut new_data.as_mut().arguments };
+                for (new, old) in new_arguments.iter_mut()
+                    .zip(&data.arguments) {
                     *new = try!(deep_clone(*old, visited, gc));
                 }
             }
