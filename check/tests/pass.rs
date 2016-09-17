@@ -139,7 +139,7 @@ let f: a -> b -> a = \x y -> x in f 1.0 ()
     assert_eq!(result, expected);
     match expr.value {
         ast::Expr::LetBindings(ref bindings, _) => {
-            assert_eq!(bindings[0].expression.env_type_of(&env), expr_expected)
+            assert_eq!(bindings[0].expr.env_type_of(&env), expr_expected)
         }
         _ => assert!(false),
     }
@@ -721,8 +721,8 @@ in f "123"
     assert_eq!(err.errors.len(), 1);
     assert_eq!(err.errors[0].span,
                Span {
-                   start: BytePos(26),
-                   end: BytePos(31),
+                   start: BytePos::from(26),
+                   end: BytePos::from(31),
                });
 }
 
