@@ -3,7 +3,6 @@ use std::any::Any;
 use std::sync::{Mutex, RwLock, RwLockWriteGuard, RwLockReadGuard, MutexGuard};
 use std::cmp::Ordering;
 use std::fmt;
-use std::mem;
 use std::ops::{Add, Sub, Mul, Div, Deref, DerefMut};
 use std::string::String as StdString;
 use std::result::Result as StdResult;
@@ -240,7 +239,6 @@ impl RootedThread {
                 gc: Gc::new(1, usize::MAX),
                 stack: Stack::new(),
                 record_map: FieldMap::new(),
-                hook: None,
             }),
             roots: RwLock::new(Vec::new()),
             rooted_values: RwLock::new(Vec::new()),
@@ -285,7 +283,6 @@ impl Thread {
                 gc: self.current_context().gc.new_child_gc(),
                 stack: Stack::new(),
                 record_map: FieldMap::new(),
-                hook: None,
             }),
             roots: RwLock::new(Vec::new()),
             rooted_values: RwLock::new(Vec::new()),
@@ -632,14 +629,11 @@ impl ThreadInternal for Thread {
     }
 }
 
-pub type HookFn = Box<FnMut(&Thread) -> Result<()> + Send + Sync>;
-
 pub struct Context {
     // FIXME It is dangerous to write to gc and stack
     pub stack: Stack,
     pub gc: Gc,
     record_map: FieldMap,
-    hook: Option<HookFn>,
 }
 
 impl Context {
@@ -664,10 +658,6 @@ impl Context {
               D::Value: Sized + Any,
     {
         self.gc.alloc_ignore_limit(data)
-    }
-
-    pub fn set_hook(&mut self, hook: Option<HookFn>) -> Option<HookFn> {
-        mem::replace(&mut self.hook, hook)
     }
 }
 
@@ -724,21 +714,6 @@ impl<'b> OwnedContext<'b> {
         while let Some(mut context) = maybe_context {
             debug!("STACK\n{:?}", context.stack.get_frames());
             let state = context.borrow_mut().stack.frame.state;
-
-            // Before entering a function (or reentering one after returning from
-            // another function) run the hook which may interuppt the execution by
-            // returning an error
-
-            match state {
-                State::Extern(_) |
-                State::Closure(_) => {
-                    if let Some(ref mut hook) = context.hook {
-                        try!(hook(context.thread))
-                    }
-                }
-                _ => (),
-            }
-
             maybe_context = match state {
                 State::Lock | State::Unknown => return Ok(Some(context)),
                 State::Excess => context.exit_scope().ok(),
@@ -771,7 +746,6 @@ impl<'b> OwnedContext<'b> {
                                    closure.function.name,
                                    instruction_index,
                                    closure.function.instructions.len());
-
                             let new_context = try!(context.execute_(instruction_index,
                                                                     &closure.function
                                                                         .instructions,
