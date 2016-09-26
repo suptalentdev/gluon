@@ -17,7 +17,7 @@ pub extern crate gluon_check as check;
 
 pub mod compiler_pipeline;
 pub mod import;
-pub mod io;
+mod io;
 
 pub use vm::thread::{RootedThread, Thread};
 
@@ -356,7 +356,6 @@ pub fn new_vm() -> RootedThread {
         .unwrap();
     ::vm::primitives::load(&vm).expect("Loaded primitives library");
     ::vm::channel::load(&vm).expect("Loaded channel library");
-    ::vm::debug::load(&vm).expect("Loaded debug library");
     ::io::load(&vm).expect("Loaded IO library");
     vm
 }
