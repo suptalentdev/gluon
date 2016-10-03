@@ -155,7 +155,6 @@ impl<'a: 'b, 'b> StackFrame<'b> {
         *self.stack.frames.last_mut().unwrap() = self.frame;
         self.stack
     }
-
     pub fn len(&self) -> VmIndex {
         self.stack.len() - self.frame.offset
     }

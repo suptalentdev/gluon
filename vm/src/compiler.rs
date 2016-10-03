@@ -33,8 +33,6 @@ enum FieldAccess {
 #[derive(Debug)]
 pub struct CompiledFunction {
     pub args: VmIndex,
-    /// The maximum possible number of stack slots needed for this function
-    pub max_stack_size: VmIndex,
     pub id: Symbol,
     pub typ: ArcType,
     pub instructions: Vec<Instruction>,
@@ -49,7 +47,6 @@ impl CompiledFunction {
     pub fn new(args: VmIndex, id: Symbol, typ: ArcType) -> CompiledFunction {
         CompiledFunction {
             args: args,
-            max_stack_size: 0,
             id: id,
             typ: typ,
             instructions: Vec::new(),
@@ -117,27 +114,13 @@ impl FunctionEnv {
         }
     }
 
-    fn emit(&mut self, instruction: Instruction) {
-        if let Slide(0) = instruction {
+    fn emit(&mut self, i: Instruction) {
+        if let Slide(0) = i {
             return;
         }
-
-        let adjustment = instruction.adjust();
-        debug!("{:?} {} {}", instruction, self.stack_size, adjustment);
-        if adjustment > 0 {
-            self.increase_stack(adjustment as VmIndex);
-        } else {
-            self.stack_size -= -adjustment as VmIndex;
-        }
-
-        self.function.instructions.push(instruction);
-    }
-
-    fn increase_stack(&mut self, adjustment: VmIndex) {
-        use std::cmp::max;
-
-        self.stack_size += adjustment;
-        self.function.max_stack_size = max(self.function.max_stack_size, self.stack_size);
+        debug!("{:?} {} {}", i, self.stack_size, i.adjust());
+        self.stack_size = (self.stack_size as i32 + i.adjust()) as VmIndex;
+        self.function.instructions.push(i);
     }
 
     fn emit_call(&mut self, args: VmIndex, tail_position: bool) {
@@ -204,7 +187,7 @@ impl FunctionEnv {
     }
 
     fn push_stack_var(&mut self, s: Symbol) {
-        self.increase_stack(1);
+        self.stack_size += 1;
         self.new_stack_var(s)
     }
 
