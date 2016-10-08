@@ -440,26 +440,26 @@ let (result, _) = Compiler::new()
 assert_eq!(result, "Hello world");
 ```
 
-[Rustdoc]:https://marwes.github.io/gluon/gluon/index.html
-[new_vm]:https://marwes.github.io/gluon/gluon/fn.new_vm.html
-[RootedThread]:https://marwes.github.io/gluon/gluon/struct.RootedThread.html
-[Thread]:https://marwes.github.io/gluon/gluon/struct.Thread.html
-[run_expr]:https://marwes.github.io/gluon/gluon/struct.Compiler.html#method.run_expr
-[Compiler struct]:https://marwes.github.io/gluon/gluon/struct.Compiler.html
-[define_global]:https://marwes.github.io/gluon/vm/thread/struct.Thread.html#method.define_global
-[primitives]:https://github.com/Marwes/gluon/blob/master/vm/src/primitives.rs
+[Rustdoc]:https://gluon-lang.github.io/gluon/gluon/index.html
+[new_vm]:https://gluon-lang.github.io/gluon/gluon/fn.new_vm.html
+[RootedThread]:https://gluon-lang.github.io/gluon/gluon/struct.RootedThread.html
+[Thread]:https://gluon-lang.github.io/gluon/gluon/struct.Thread.html
+[run_expr]:https://gluon-lang.github.io/gluon/gluon/struct.Compiler.html#method.run_expr
+[Compiler struct]:https://gluon-lang.github.io/gluon/gluon/struct.Compiler.html
+[define_global]:https://gluon-lang.github.io/gluon/vm/thread/struct.Thread.html#method.define_global
+[primitives]:https://github.com/gluon-lang/gluon/blob/master/vm/src/primitives.rs
 [string]:http://doc.rust-lang.org/std/primitive.str.html
 [float]:http://doc.rust-lang.org/std/primitive.f64.html
 
 ## Standard types and functions
 
-https://github.com/Marwes/gluon/tree/master/std
+https://github.com/gluon-lang/gluon/tree/master/std
 
 TODO
 
 ### Prelude
 
-When compiling a an expression the compiler automatically inserts a small prelude before the expression itself which gives automatic access to basic operators such as `+`, `-`, etc as well as types such as `Option` and `Result`.
+When compiling an expression, the compiler automatically inserts a small prelude before the expression itself which gives automatic access to basic operators such as `+`, `-`, etc as well as types such as `Option` and `Result`.
 
 ### Threads and channels
 
