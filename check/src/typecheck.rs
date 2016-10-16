@@ -10,11 +10,10 @@ use base::ast::{SpannedPattern, TypeBinding, Typed, TypedIdent, ValueBinding};
 use base::error::Errors;
 use base::fnv::FnvSet;
 use base::instantiate::{self, Instantiator};
-use base::kind::{Kind, KindEnv, ArcKind};
 use base::pos::{BytePos, Span, Spanned};
 use base::symbol::{Symbol, SymbolRef, SymbolModule, Symbols};
-use base::types::{self, Alias, AliasData, ArcType, Field, Generic};
-use base::types::{PrimitiveEnv, Type, TypeEnv, TypeVariable};
+use base::types::{self, ArcType, Field, ArcKind, Type, Generic, Kind, merge};
+use base::types::{KindEnv, TypeEnv, PrimitiveEnv, Alias, AliasData, TypeVariable};
 use kindcheck::{self, KindCheck};
 use substitution::Substitution;
 use unify::Error as UnifyError;
@@ -171,15 +170,21 @@ impl<'a> TypeEnv for Environment<'a> {
         self.stack_types
             .iter()
             .find(|&(_, &(_, ref alias))| {
-                match *alias.typ {
-                    Type::Record(_) => {
-                        fields.iter()
-                            .all(|name| alias.typ.field_iter().any(|f| f.name.name_eq(name)))
+                match alias.typ {
+                    Some(ref typ) => {
+                        match **typ {
+                            Type::Record(_) => {
+                                fields.iter()
+                                    .all(|name| typ.field_iter().any(|f| f.name.name_eq(name)))
+                            }
+                            _ => false,
+
+                        }
                     }
-                    _ => false,
+                    None => false,
                 }
             })
-            .map(|t| (&(t.1).0, &(t.1).1.typ))
+            .map(|t| (&(t.1).0, (t.1).1.typ.as_ref().unwrap()))
             .or_else(|| self.environment.find_record(fields))
     }
 }
@@ -292,14 +297,15 @@ impl<'a> Typecheck<'a> {
 
     fn stack_type(&mut self, id: Symbol, alias: &Alias<Symbol, ArcType>) {
         // Insert variant constructors into the local scope
-        if let Type::Variant(ref row) = *alias.typ {
-            for field in row.field_iter().cloned() {
-                let symbol = self.symbols.symbol(field.name.as_ref());
-                self.original_symbols.insert(symbol, field.name.clone());
-                self.stack_var(field.name, field.typ);
+        if let Some(ref real_type) = alias.typ {
+            if let Type::Variants(ref variants) = **real_type {
+                for (name, typ) in variants.iter().cloned() {
+                    let symbol = self.symbols.symbol(name.as_ref());
+                    self.original_symbols.insert(symbol, name.clone());
+                    self.stack_var(name, typ);
+                }
             }
         }
-
         let generic_args = alias.args.iter().cloned().map(Type::generic).collect();
         let typ = Type::<_, ArcType>::app(alias.as_ref().clone(), generic_args);
         {
@@ -931,7 +937,10 @@ impl<'a> Typecheck<'a> {
             Alias::make_mut(&mut bind.alias).name = new;
         }
         for bind in bindings.iter_mut() {
-            let typ = &mut Alias::make_mut(&mut bind.alias).typ;
+            let typ = Alias::make_mut(&mut bind.alias)
+                .typ
+                .as_mut()
+                .expect("Expected binding to have an aliased type");
             *typ = self.create_unifiable_signature(typ.clone());
         }
         {
@@ -955,14 +964,19 @@ impl<'a> Typecheck<'a> {
             // Kindcheck all the types in the environment
             for bind in bindings.iter_mut() {
                 check.set_variables(&bind.alias.args);
-                let typ = &mut Alias::make_mut(&mut bind.alias).typ;
+                let typ = Alias::make_mut(&mut bind.alias)
+                    .typ
+                    .as_mut()
+                    .expect("Expected binding to have an aliased type");
                 try!(check.kindcheck_type(typ));
             }
 
             // All kinds are now inferred so replace the kinds store in the AST
             for bind in bindings.iter_mut() {
                 let alias = Alias::make_mut(&mut bind.alias);
-                alias.typ = check.finalize_type(alias.typ.clone());
+                if let Some(ref mut typ) = alias.typ {
+                    *typ = check.finalize_type(typ.clone());
+                }
                 for arg in &mut alias.args {
                     *arg = check.finalize_generic(&arg);
                 }
@@ -1125,11 +1139,11 @@ impl<'a> Typecheck<'a> {
                         })
                     });
                     let new_rest = self.finish_type(level, rest);
-                    types::merge(fields,
-                                 new_fields,
-                                 rest,
-                                 new_rest,
-                                 |fields, rest| Type::extend_row(types.clone(), fields, rest))
+                    merge(fields,
+                          new_fields,
+                          rest,
+                          new_rest,
+                          |fields, rest| Type::extend_row(types.clone(), fields, rest))
                         .or_else(|| replacement.clone())
                 }
                 _ => {
@@ -1194,24 +1208,19 @@ impl<'a> Typecheck<'a> {
                             Some(Type::ident(new_id.clone()))
                         })
                 }
-                Type::Variant(ref row) => {
+                Type::Variants(ref variants) => {
                     let iter = || {
-                        row.field_iter()
-                            .map(|var| self.original_symbols.get(&var.name))
+                        variants.iter()
+                            .map(|var| self.original_symbols.get(&var.0))
                     };
                     if iter().any(|opt| opt.is_some()) {
                         // If any of the variants requires a symbol replacement
                         // we create a new type
-                        Some(Type::variant(iter()
-                            .zip(row.field_iter())
+                        Some(Type::variants(iter()
+                            .zip(variants.iter())
                             .map(|(new, old)| {
                                 match new {
-                                    Some(new) => {
-                                        Field {
-                                            name: new.clone(),
-                                            typ: old.typ.clone(),
-                                        }
-                                    }
+                                    Some(new) => (new.clone(), old.1.clone()),
                                     None => old.clone(),
                                 }
                             })

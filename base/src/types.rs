@@ -1,3 +1,4 @@
+//! Module containing types representing `gluon`'s type system
 use std::borrow::ToOwned;
 use std::fmt;
 use std::ops::Deref;
@@ -7,8 +8,86 @@ use std::marker::PhantomData;
 use pretty::{DocAllocator, Arena, DocBuilder};
 
 use ast::{self, DisplayEnv};
-use kind::{ArcKind, Kind, KindEnv};
 use symbol::{Symbol, SymbolRef};
+
+/// Trait for values which contains kinded values which can be refered by name
+pub trait KindEnv {
+    /// Returns the kind of the type `type_name`
+    fn find_kind(&self, type_name: &SymbolRef) -> Option<ArcKind>;
+}
+
+impl<'a, T: ?Sized + KindEnv> KindEnv for &'a T {
+    fn find_kind(&self, id: &SymbolRef) -> Option<ArcKind> {
+        (**self).find_kind(id)
+    }
+}
+
+/// Kind representation
+///
+/// All types in gluon has a kind. Most types encountered are of the `Type` kind which
+/// includes things like `Int`, `String` and `Option Int`. There are however other types which
+/// are said to be "higher kinded" and these use the `Function` (a -> b) variant.
+/// These types include `Option` and `(->)` which both have the kind `Type -> Type` as well as
+/// `Functor` which has the kind `(Type -> Type) -> Type`.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub enum Kind {
+    /// Representation for a kind which is yet to be inferred.
+    Variable(u32),
+    /// The simplest possible kind. All values in a program have this kind.
+    Type,
+    /// Kinds of rows (for polymorphic records).
+    Row,
+    /// Constructor which takes two kinds, taking the first as argument and returning the second.
+    Function(ArcKind, ArcKind),
+}
+
+impl Kind {
+    pub fn variable(v: u32) -> ArcKind {
+        ArcKind::new(Kind::Variable(v))
+    }
+
+    pub fn typ() -> ArcKind {
+        ArcKind::new(Kind::Type)
+    }
+
+    pub fn row() -> ArcKind {
+        ArcKind::new(Kind::Row)
+    }
+
+    pub fn function(l: ArcKind, r: ArcKind) -> ArcKind {
+        ArcKind::new(Kind::Function(l, r))
+    }
+}
+
+/// Reference counted kind type.
+#[derive(Clone, Eq, PartialEq, Hash)]
+pub struct ArcKind(Arc<Kind>);
+
+impl Deref for ArcKind {
+    type Target = Kind;
+
+    fn deref(&self) -> &Kind {
+        &self.0
+    }
+}
+
+impl fmt::Debug for ArcKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl fmt::Display for ArcKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl ArcKind {
+    pub fn new(k: Kind) -> ArcKind {
+        ArcKind(Arc::new(k))
+    }
+}
 
 /// Trait for values which contains typed values which can be refered by name
 pub trait TypeEnv: KindEnv {
@@ -200,8 +279,8 @@ pub struct AliasData<Id, T> {
     pub name: Id,
     /// Arguments to the alias
     pub args: Vec<Generic<Id>>,
-    /// The type that is being aliased
-    pub typ: T,
+    /// The type which is being aliased or `None` if the type is abstract
+    pub typ: Option<T>,
 }
 
 #[derive(Clone, Hash, Eq, PartialEq, Debug)]
@@ -220,41 +299,32 @@ pub struct Field<Id, T = ArcType<Id>> {
 pub enum Type<Id, T = ArcType<Id>> {
     /// An unbound type `_`, awaiting ascription.
     Hole,
-    /// An opaque type
-    Opaque,
+    /// An application with multiple arguments.
+    /// `Map String Int` would be represented as `App(Map, [String, Int])`
+    App(T, Vec<T>),
+    /// A variant type `| A Int Float | B`.
+    /// The second element of the tuple is the function type which the constructor has which in the
+    /// above example means that A's type is `Int -> Float -> A` and B's is `B`
+    Variants(Vec<(Id, T)>),
+    /// Representation for type variables
+    Variable(TypeVariable),
+    /// Variant for "generic" variables. These occur in signatures as lowercase identifers `a`, `b`
+    /// etc and are what unbound type variables are eventually made into.
+    Generic(Generic<Id>),
     /// A builtin type
     Builtin(BuiltinType),
-    /// A type application with multiple arguments. For example,
-    /// `Map String Int` would be represented as `App(Map, [String, Int])`.
-    App(T, Vec<T>),
-    /// Record constructor, of kind `Row -> Type`
+    /// A record type
     Record(T),
-    /// Variant constructor, of kind `Row -> Type`
-    Variant(T),
-    /// The empty row, of kind `Row`
     EmptyRow,
-    /// Row extension, of kind `... -> Row -> Row`
     ExtendRow {
         /// The associated types of this record type
         types: Vec<Field<Id, Alias<Id, T>>>,
         /// The fields of this record type
         fields: Vec<Field<Id, T>>,
-        /// The rest of the row
         rest: T,
     },
-    /// An identifier type. These are created during parsing, but should all be
-    ///resolved into `Type::Alias`es during type checking.
-    ///
-    /// Identifiers are also sometimes used inside aliased types to avoid cycles
-    /// in reference counted pointers. This is a bit of a wart at the moment and
-    /// _may_ cause spurious unification failures.
+    /// An identifier type. Anything that is not a builtin type.
     Ident(Id),
-    /// An unbound type variable that may be unified with other types. These
-    /// will eventually be converted into `Type::Generic`s during generalization.
-    Variable(TypeVariable),
-    /// A variable that needs to be instantiated with a fresh type variable
-    /// when the binding is refered to.
-    Generic(Generic<Id>),
     Alias(AliasData<Id, T>),
 }
 
@@ -263,10 +333,6 @@ impl<Id, T> Type<Id, T>
 {
     pub fn hole() -> T {
         T::from(Type::Hole)
-    }
-
-    pub fn opaque() -> T {
-        T::from(Type::Opaque)
     }
 
     pub fn array(typ: T) -> T {
@@ -281,14 +347,8 @@ impl<Id, T> Type<Id, T>
         }
     }
 
-    pub fn variant(fields: Vec<Field<Id, T>>) -> T {
-        Type::poly_variant(fields, Type::empty_row())
-    }
-
-    pub fn poly_variant(fields: Vec<Field<Id, T>>,
-                        rest: T)
-                        -> T {
-        T::from(Type::Variant(Type::extend_row(Vec::new(), fields, rest)))
+    pub fn variants(vs: Vec<(Id, T)>) -> T {
+        T::from(Type::Variants(vs))
     }
 
     pub fn record(types: Vec<Field<Id, Alias<Id, T>>>, fields: Vec<Field<Id, T>>) -> T {
@@ -347,7 +407,7 @@ impl<Id, T> Type<Id, T>
         T::from(Type::Alias(AliasData {
             name: name,
             args: args,
-            typ: typ,
+            typ: Some(typ),
         }))
     }
 
@@ -616,6 +676,34 @@ impl TypeVariable {
     }
 }
 
+struct DisplayKind<'a>(Prec, &'a Kind);
+
+impl fmt::Display for Kind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", DisplayKind(Prec::Top, self))
+    }
+}
+
+impl<'a> fmt::Display for DisplayKind<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self.1 {
+            Kind::Variable(i) => i.fmt(f),
+            Kind::Type => "Type".fmt(f),
+            Kind::Row => "Row".fmt(f),
+            Kind::Function(ref arg, ref ret) => {
+                match self.0 {
+                    Prec::Function => {
+                        write!(f, "({} -> {})", DisplayKind(Prec::Function, arg), ret)
+                    }
+                    Prec::Top | Prec::Constructor => {
+                        write!(f, "{} -> {}", DisplayKind(Prec::Function, arg), ret)
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl fmt::Display for TypeVariable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.id.fmt(f)
@@ -632,19 +720,6 @@ impl fmt::Display for BuiltinType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.to_str().fmt(f)
     }
-}
-
-#[derive(PartialEq, Copy, Clone, PartialOrd)]
-enum Prec {
-    /// The type exists in the top context, no parentheses needed.
-    Top,
-    /// The type exists in a function argument `Type -> a`, parentheses are
-    /// needed if the type is a function `(b -> c) -> a`.
-    Function,
-    /// The type exists in a constructor argument `Option Type`, parentheses
-    /// are needed for functions or other constructors `Option (a -> b)`
-    /// `Option (Result a b)`.
-    Constructor,
 }
 
 fn dt<'a, I, T, E>(env: &'a E, prec: Prec, typ: &'a Type<I, T>) -> DisplayType<'a, I, T, E> {
@@ -736,7 +811,6 @@ impl<'a, I, T, E> DisplayType<'a, I, T, E>
         let p = self.prec;
         match *self.typ {
             Type::Hole => arena.text("_"),
-            Type::Opaque => arena.text("<opaque>"),
             Type::Variable(ref var) => arena.text(format!("{}", var.id)),
             Type::Generic(ref gen) => arena.text(gen.id.as_ref()),
             Type::App(ref t, ref args) => {
@@ -760,31 +834,23 @@ impl<'a, I, T, E> DisplayType<'a, I, T, E>
                     }
                 }
             }
-            Type::Variant(ref row) => {
+            Type::Variants(ref variants) => {
                 let mut first = true;
                 let mut doc = arena.nil();
-
-                match **row {
-                    Type::EmptyRow => (),
-                    Type::ExtendRow { ref fields, .. } => {
-                        for field in fields.iter() {
-                            if !first {
-                                doc = doc.append(arena.newline());
-                            }
-                            first = false;
-                            doc = doc.append("| ")
-                                .append(field.name.as_ref());
-                            for arg in arg_iter(&field.typ) {
-                                doc = chain![arena;
-                                            doc,
-                                            " ",
-                                            dt(self.env, Prec::Constructor, &arg).pretty(arena)];
-                            }
-                        }
+                for variant in variants {
+                    if !first {
+                        doc = doc.append(arena.newline());
                     }
-                    ref typ => panic!("Unexpected type `{}` in variant", typ),
-                };
-
+                    first = false;
+                    doc = doc.append("| ")
+                        .append(variant.0.as_ref());
+                    for arg in arg_iter(&variant.1) {
+                        doc = chain![arena;
+                                     doc,
+                                     " ",
+                                     dt(self.env, Prec::Constructor, &arg).pretty(arena)];
+                    }
+                }
                 enclose(p, Prec::Constructor, arena, doc).group()
             }
             Type::Builtin(ref t) => arena.text(t.to_str()),
@@ -824,8 +890,13 @@ impl<'a, I, T, E> DisplayType<'a, I, T, E>
                             arena.concat(field.typ.args.iter().map(|arg| {
                                 arena.text(self.env.string(&arg.id)).append(" ").into()
                             })),
-                            arena.text("= ")
-                                 .append(top(self.env, &field.typ.typ).pretty(arena)),
+                            match field.typ.typ {
+                                Some(ref typ) => {
+                                    arena.text("= ")
+                                        .append(top(self.env, typ).pretty(arena))
+                                }
+                                None => arena.text("= <abstract>"),
+                            },
                             if i + 1 != types.len() || !fields.is_empty() {
                                 arena.text(",")
                             } else {
@@ -881,6 +952,19 @@ impl<'a, I, T, E> DisplayType<'a, I, T, E>
     }
 }
 
+
+#[derive(PartialEq, Copy, Clone, PartialOrd)]
+enum Prec {
+    /// The type exists in the top context, no parentheses needed.
+    Top,
+    /// The type exists in a function argument `Type -> a`, parentheses are needed if the type is a
+    /// function `(b -> c) -> a`
+    Function,
+    /// The type exists in a constructor argument `Option Type`, parentheses are needed for
+    /// functions or other constructors `Option (a -> b)` `Option (Result a b)`
+    Constructor,
+}
+
 impl<I, T> fmt::Display for Type<I, T>
     where I: AsRef<str>,
           T: Deref<Target = Type<I, T>>,
@@ -920,18 +1004,25 @@ pub fn walk_type_<I, T, F: ?Sized>(typ: &T, f: &mut F)
                 f.walk(a);
             }
         }
-        Type::Record(ref row) | Type::Variant(ref row) => f.walk(row),
+        Type::Record(ref row) => f.walk(row),
         Type::ExtendRow { ref types, ref fields, ref rest } => {
             for field in types {
-                f.walk(&field.typ.typ);
+                if let Some(ref typ) = field.typ.typ {
+                    f.walk(typ);
+                }
             }
+
             for field in fields {
                 f.walk(&field.typ);
             }
             f.walk(rest);
         }
+        Type::Variants(ref variants) => {
+            for variant in variants {
+                f.walk(&variant.1);
+            }
+        }
         Type::Hole |
-        Type::Opaque |
         Type::Builtin(_) |
         Type::Variable(_) |
         Type::Generic(_) |
@@ -951,6 +1042,21 @@ pub fn fold_type<I, T, F, A>(typ: &T, mut f: F, a: A) -> A
     });
     a.expect("fold_type")
 }
+
+pub fn walk_kind<F: ?Sized>(k: &ArcKind, f: &mut F)
+    where F: Walker<ArcKind>,
+{
+    match **k {
+        Kind::Function(ref a, ref r) => {
+            f.walk(a);
+            f.walk(r);
+        }
+        Kind::Variable(_) |
+        Kind::Type |
+        Kind::Row => (),
+    }
+}
+
 
 pub trait TypeVisitor<I, T> {
     fn visit(&mut self, typ: &Type<I, T>) -> Option<T>
@@ -980,7 +1086,6 @@ impl<I, T, F: ?Sized> TypeVisitor<I, T> for F
 
 /// Wrapper type which allows functions to control how to traverse the members of the type
 pub struct ControlVisitation<F>(pub F);
-
 impl<F, I, T> TypeVisitor<I, T> for ControlVisitation<F>
     where F: FnMut(&Type<I, T>) -> Option<T>,
 {
@@ -999,6 +1104,15 @@ impl<I, T, F: ?Sized> Walker<T> for F
     fn walk(&mut self, typ: &T) {
         self(typ);
         walk_type_(typ, self)
+    }
+}
+
+impl<F: ?Sized> Walker<ArcKind> for F
+    where F: FnMut(&ArcKind),
+{
+    fn walk(&mut self, typ: &ArcKind) {
+        self(typ);
+        walk_kind(typ, self)
     }
 }
 
@@ -1042,7 +1156,6 @@ pub fn walk_move_type_opt<F: ?Sized, I, T>(typ: &Type<I, T>, f: &mut F) -> Optio
             merge(id, f.visit(id), args, new_args, Type::app)
         }
         Type::Record(ref row) => f.visit(row).map(|row| T::from(Type::Record(row))),
-        Type::Variant(ref row) => f.visit(row).map(|row| T::from(Type::Variant(row))),
         Type::ExtendRow { ref types, ref fields, ref rest } => {
             let new_fields = walk_move_types(fields, |field| {
                 f.visit(&field.typ).map(|typ| {
@@ -1059,8 +1172,11 @@ pub fn walk_move_type_opt<F: ?Sized, I, T>(typ: &Type<I, T>, f: &mut F) -> Optio
                   new_rest,
                   |fields, rest| Type::extend_row(types.clone(), fields, rest))
         }
+        Type::Variants(ref variants) => {
+            walk_move_types(variants, |v| f.visit(&v.1).map(|t| (v.0.clone(), t)))
+                .map(Type::variants)
+        }
         Type::Hole |
-        Type::Opaque |
         Type::Builtin(_) |
         Type::Variable(_) |
         Type::Generic(_) |
@@ -1084,7 +1200,6 @@ pub fn walk_move_types<'a, I, F, T>(types: I, mut f: F) -> Option<Vec<T>>
         Some(out)
     }
 }
-
 fn walk_move_types2<'a, I, F, T>(mut types: I, replaced: bool, output: &mut Vec<T>, f: &mut F)
     where I: Iterator<Item = &'a T>,
           F: FnMut(&'a T) -> Option<T>,

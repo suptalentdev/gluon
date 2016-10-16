@@ -1,11 +1,12 @@
 use std::ops::{Deref, DerefMut};
 use interner::InternedStr;
-use base::ast::{Literal, Pattern, TypedIdent, Typed, DisplayEnv, SpannedExpr, Expr};
+use base::ast::{Literal, Pattern, TypedIdent};
 use base::instantiate;
-use base::kind::{ArcKind, KindEnv};
-use base::types::{self, Alias, ArcType, Type, TypeEnv};
-use base::scoped_map::ScopedMap;
 use base::symbol::{Symbol, SymbolRef, SymbolModule};
+use base::ast::{Typed, DisplayEnv, SpannedExpr, Expr};
+use base::types;
+use base::types::{Alias, KindEnv, ArcType, Type, TypeEnv};
+use base::scoped_map::ScopedMap;
 use types::*;
 use vm::GlobalVmState;
 use self::Variable::*;
@@ -255,18 +256,20 @@ impl CompilerEnv for TypeInfos {
         self.id_to_type
             .iter()
             .filter_map(|(_, ref alias)| {
-                match *alias.typ {
-                    Type::Variant(ref row) => {
-                        row.field_iter()
-                            .enumerate()
-                            .find(|&(_, field)| field.name == *id)
+                alias.typ.as_ref().and_then(|typ| {
+                    match **typ {
+                        Type::Variants(ref variants) => {
+                            variants.iter()
+                                .enumerate()
+                                .find(|&(_, v)| v.0 == *id)
+                        }
+                        _ => None,
                     }
-                    _ => None,
-                }
+                })
             })
             .next()
-            .map(|(tag, field)| {
-                Variable::Constructor(tag as VmTag, count_function_args(&field.typ))
+            .map(|(tag, &(_, ref typ))| {
+                Variable::Constructor(tag as VmTag, count_function_args(&typ))
             })
     }
 }
@@ -280,7 +283,7 @@ pub struct Compiler<'a> {
 }
 
 impl<'a> KindEnv for Compiler<'a> {
-    fn find_kind(&self, _type_name: &SymbolRef) -> Option<ArcKind> {
+    fn find_kind(&self, _type_name: &SymbolRef) -> Option<types::ArcKind> {
         None
     }
 }
@@ -329,18 +332,17 @@ impl<'a> Compiler<'a> {
             .iter()
             .filter_map(|(_, typ)| {
                 match **typ {
-                    Type::Variant(ref row) => {
-                        row.field_iter()
+                    Type::Variants(ref variants) => {
+                        variants.iter()
                             .enumerate()
-                            .find(|&(_, field)| field.name == *id)
+                            .find(|&(_, v)| v.0 == *id)
                     }
                     _ => None,
                 }
             })
             .next()
-            .map(|(tag, field)| {
-                Constructor(tag as VmIndex,
-                            types::arg_iter(&field.typ).count() as VmIndex)
+            .map(|(tag, &(_, ref typ))| {
+                Constructor(tag as VmIndex, types::arg_iter(typ).count() as VmIndex)
             })
             .or_else(|| {
                 current.stack
@@ -405,10 +407,10 @@ impl<'a> Compiler<'a> {
 
     fn find_tag(&self, typ: &ArcType, constructor: &Symbol) -> Option<VmTag> {
         match **instantiate::remove_aliases_cow(self, typ) {
-            Type::Variant(ref row) => {
-                row.field_iter()
+            Type::Variants(ref variants) => {
+                variants.iter()
                     .enumerate()
-                    .find(|&(_, field)| field.name == *constructor)
+                    .find(|&(_, v)| v.0 == *constructor)
                     .map(|(tag, _)| tag as VmTag)
             }
             _ => None,
@@ -733,7 +735,8 @@ impl<'a> Compiler<'a> {
             Expr::TypeBindings(ref type_bindings, ref expr) => {
                 for bind in type_bindings {
                     self.stack_types.insert(bind.alias.name.clone(), bind.alias.clone());
-                    self.stack_constructors.insert(bind.name.clone(), bind.alias.typ.clone());
+                    let typ = bind.alias.typ.as_ref().expect("TypeBinding type").clone();
+                    self.stack_constructors.insert(bind.name.clone(), typ);
                 }
                 return Ok(Some(expr));
             }
@@ -789,8 +792,10 @@ impl<'a> Compiler<'a> {
                     // name are imported. Without this aliases may not be traversed properly
                     self.stack_types.insert(alias.name.clone(), alias.clone());
                     self.stack_types.insert(name.clone(), alias.clone());
-                    self.stack_constructors.insert(alias.name.clone(), alias.typ.clone());
-                    self.stack_constructors.insert(name.clone(), alias.typ.clone());
+                    if let Some(ref typ) = alias.typ {
+                        self.stack_constructors.insert(alias.name.clone(), typ.clone());
+                        self.stack_constructors.insert(name.clone(), typ.clone());
+                    }
                 });
                 match *typ {
                     Type::Record(_) => {

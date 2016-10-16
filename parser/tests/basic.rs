@@ -7,9 +7,8 @@ extern crate log;
 mod support;
 
 use base::ast::*;
-use base::kind::Kind;
 use base::pos::{self, BytePos, Span, Spanned};
-use base::types::{Alias, ArcType, Field, Generic, Type};
+use base::types::{Alias, ArcType, Field, Generic, Kind, Type};
 use parser::{parse_string, Error};
 use support::MockEnv;
 
@@ -245,7 +244,8 @@ fn type_decl_record() {
 fn type_mutually_recursive() {
     let _ = ::env_logger::init();
     let e = parse_new!("type Test = | Test Int and Test2 = { x: Int, y: {} } in 1");
-    let test = Type::variant(vec![field("Test", Type::function(vec![typ("Int")], typ("Test")))]);
+    let test = Type::variants(vec![(intern("Test"),
+                                    Type::function(vec![typ("Int")], typ("Test")))]);
     let test2 = Type::record(Vec::new(),
                              vec![Field {
                                       name: intern("x"),
@@ -306,7 +306,7 @@ fn variant_type() {
     assert_eq!(e,
                type_decl(intern("Option"),
                          vec![generic("a")],
-                         Type::variant(vec![field("None", none), field("Some", some)]),
+                         Type::variants(vec![(intern("None"), none), (intern("Some"), some)]),
                          app(id("Some"), vec![int(1)])));
 }
 #[test]
@@ -674,9 +674,9 @@ fn quote_in_identifier() {
     let _ = ::env_logger::init();
     let e = parse_new!("let f' = \\x y -> x + y in f' 1 2");
     let a = let_("f'",
-                 lambda("",
-                        vec![intern("x"), intern("y")],
-                        binop(id("x"), "+", id("y"))),
-                 app(id("f'"), vec![int(1), int(2)]));
+                lambda("",
+                    vec![intern("x"), intern("y")],
+                    binop(id("x"), "+", id("y"))),
+                app(id("f'"), vec![int(1), int(2)]));
     assert_eq!(e, a);
 }

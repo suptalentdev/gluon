@@ -345,7 +345,8 @@ fn get_return_type(env: &TypeEnv, alias_type: &ArcType, arg_count: usize) -> Arc
                 match alias_type.as_alias() {
                     Some((id, alias_args)) => {
                         let (args, typ) = match env.find_type_info(&id).map(Alias::deref) {
-                            Some(&AliasData { ref args, ref typ, .. }) => (args, typ),
+                            Some(&AliasData { ref args, typ: Some(ref typ), .. }) => (args, typ),
+                            Some(&AliasData { .. }) => panic!("ICE: '{:?}' does not exist", id),
                             None => panic!("Unexpected type {:?} is not a function", alias_type),
                         };
 

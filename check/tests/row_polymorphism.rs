@@ -4,8 +4,7 @@ extern crate gluon_base as base;
 extern crate gluon_parser as parser;
 extern crate gluon_check as check;
 
-use base::kind::Kind;
-use base::types::{Field, Type};
+use base::types::{Field, Type, Kind};
 use check::kindcheck::KindCheck;
 
 use support::{MockEnv, MockIdentEnv, intern, typ};

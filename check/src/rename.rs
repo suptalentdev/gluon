@@ -1,13 +1,12 @@
 use std::fmt;
 
 use base::ast::{self, DisplayEnv, Expr, SpannedExpr, MutVisitor, Typed, TypedIdent};
+use base::pos::{self, BytePos, Span, Spanned};
 use base::error::Errors;
 use base::fnv::FnvMap;
-use base::kind::{ArcKind, KindEnv};
-use base::pos::{self, BytePos, Span, Spanned};
 use base::scoped_map::ScopedMap;
 use base::symbol::{Symbol, SymbolRef, SymbolModule};
-use base::types::{self, Alias, ArcType, Type, TypeEnv};
+use base::types::{self, Alias, ArcType, Type, ArcKind, KindEnv, TypeEnv};
 use unify_type::{TypeError, State};
 use unify::{Error as UnifyError, Unifier, Unifiable, UnifierState};
 
@@ -143,12 +142,13 @@ pub fn rename(symbols: &mut SymbolModule,
 
         fn stack_type(&mut self, id: Symbol, span: Span<BytePos>, alias: &Alias<Symbol, ArcType>) {
             // Insert variant constructors into the local scope
-            if let Type::Variant(ref row) = *alias.typ {
-                for field in row.field_iter().cloned() {
-                    self.env.stack.insert(field.name.clone(), (field.name, span, field.typ));
+            if let Some(ref real_type) = alias.typ {
+                if let Type::Variants(ref variants) = **real_type {
+                    for &(ref name, ref typ) in variants {
+                        self.env.stack.insert(name.clone(), (name.clone(), span, typ.clone()));
+                    }
                 }
             }
-
             // FIXME: Workaround so that both the types name in this module and its global
             // name are imported. Without this aliases may not be traversed properly
             self.env.stack_types.insert(alias.name.clone(), alias.clone());

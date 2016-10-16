@@ -5,9 +5,8 @@ extern crate gluon_parser as parser;
 extern crate gluon_check as check;
 
 use base::ast::{self, Expr, Pattern, Typed};
-use base::kind::Kind;
 use base::pos::{BytePos, Span};
-use base::types::{self, Field, Generic, Type};
+use base::types::{self, Field, Generic, Kind, Type};
 
 use support::{MockEnv, alias, intern, typ};
 
@@ -309,16 +308,10 @@ let option_Functor: Functor Option = {
 in option_Functor.map (\x -> x #Int- 1) (Some 2)
 ";
     let result = support::typecheck(text);
-    let variants = Type::variant(vec![Field {
-                                          name: support::intern_unscoped("None"),
-                                          typ: support::typ_a("Option", vec![typ("a")]),
-                                      },
-                                      Field {
-                                          name: support::intern_unscoped("Some"),
-                                          typ: Type::function(vec![typ("a")],
-                                                                   support::typ_a("Option",
-                                                                                  vec![typ("a")])),
-                                      }]);
+    let variants = Type::variants(vec![(support::intern_unscoped("None"), support::typ_a("Option", vec![typ("a")])),
+                                       (support::intern_unscoped("Some"),
+                                        Type::function(vec![typ("a")],
+                                                       support::typ_a("Option", vec![typ("a")])))]);
     let option = alias("Option", &["a"], variants);
     let expected = Ok(Type::app(option, vec![typ("Int")]));
 
@@ -353,12 +346,9 @@ test
     let result = support::typecheck(text);
     assert!(result.is_ok(), "{}", result.unwrap_err());
 
-    let variants = Type::variant(vec![Field {
-                                          name: support::intern_unscoped("T"),
-                                          typ: Type::function(vec![typ("a")],
-                                                                   support::typ_a("Test",
-                                                                                  vec![typ("a")])),
-                                      }]);
+    let variants = Type::variants(vec![(support::intern_unscoped("T"),
+                                        Type::function(vec![typ("a")],
+                                                       support::typ_a("Test", vec![typ("a")])))]);
     let expected = Ok(Type::app(alias("Test", &["a"], variants), vec![Type::unit()]));
 
     assert_eq!(result, expected);
@@ -495,7 +485,7 @@ type Test = | Test String Int in { Test, x = 1 }
 "#;
     let result = support::typecheck(text);
     let variant = Type::function(vec![typ("String"), typ("Int")], typ("Test"));
-    let test = Type::variant(vec![Field { name: intern("Test"), typ: variant }]);
+    let test = Type::variants(vec![(intern("Test"), variant)]);
     let types = vec![Field {
         name: support::intern_unscoped("Test"),
         typ: types::Alias::new(intern("Test"), vec![], test),
@@ -536,11 +526,11 @@ return 1
 "#;
     let result = support::typecheck(text);
     let variant = |name| {
-        Type::variant(vec![Field {
-                               name: intern(name),
-                               typ: Type::function(vec![typ("a")],
-                                                        Type::app(typ(name), vec![typ("a")])),
-                           }])
+        Type::variants(vec![(
+            intern(name),
+            Type::function(vec![typ("a")],
+            Type::app(typ(name), vec![typ("a")]),
+        ))])
     };
     let test = alias("Test", &["a"], variant("Test"));
     let m = Generic {
