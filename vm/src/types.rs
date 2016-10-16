@@ -1,7 +1,7 @@
-use base::symbol::{Symbol, SymbolRef};
-use base::types;
-use base::types::{Alias, KindEnv, TypeEnv, ArcType, Type};
 use base::fnv::FnvMap;
+use base::kind::{ArcKind, Kind, KindEnv};
+use base::symbol::{Symbol, SymbolRef};
+use base::types::{Alias, ArcType, TypeEnv, Type};
 
 pub use self::Instruction::*;
 
@@ -155,14 +155,13 @@ pub struct TypeInfos {
 }
 
 impl KindEnv for TypeInfos {
-    fn find_kind(&self, type_name: &SymbolRef) -> Option<types::ArcKind> {
+    fn find_kind(&self, type_name: &SymbolRef) -> Option<ArcKind> {
         let type_name = AsRef::<str>::as_ref(type_name);
         self.id_to_type
             .get(type_name)
             .map(|alias| {
-                alias.args.iter().rev().fold(types::Kind::typ(), |acc, arg| {
-                    types::Kind::function(arg.kind.clone(), acc)
-                })
+                alias.args.iter().rev().fold(Kind::typ(),
+                                             |acc, arg| Kind::function(arg.kind.clone(), acc))
             })
     }
 }
@@ -173,17 +172,15 @@ impl TypeEnv for TypeInfos {
         self.id_to_type
             .iter()
             .filter_map(|(_, ref alias)| {
-                alias.typ.as_ref().and_then(|typ| {
-                    match **typ {
-                        Type::Variants(ref variants) => {
-                            variants.iter().find(|v| v.0.as_ref() == id)
-                        }
-                        _ => None,
+                match *alias.typ {
+                    Type::Variant(ref row) => {
+                        row.row_iter().find(|field| field.name.as_ref() == id)
                     }
-                })
+                    _ => None,
+                }
             })
             .next()
-            .map(|x| &x.1)
+            .map(|field| &field.typ)
     }
 
     fn find_type_info(&self, id: &SymbolRef) -> Option<&Alias<Symbol, ArcType>> {
@@ -196,22 +193,17 @@ impl TypeEnv for TypeInfos {
         self.id_to_type
             .iter()
             .find(|&(_, alias)| {
-                alias.typ
-                    .as_ref()
-                    .map(|typ| {
-                        match **typ {
-                            Type::Record(_) => {
-                                fields.iter().all(|name| {
-                                    typ.field_iter().any(|f| f.name.as_ref() == name.as_ref())
-                                })
-                            }
-                            _ => false,
-                        }
-                    })
-                    .unwrap_or(false)
+                match *alias.typ {
+                    Type::Record(_) => {
+                        fields.iter().all(|name| {
+                            alias.typ.row_iter().any(|f| f.name.as_ref() == name.as_ref())
+                        })
+                    }
+                    _ => false,
+                }
             })
             .and_then(|t| {
-                let typ = t.1.typ.as_ref().unwrap();
+                let typ = &t.1.typ;
                 self.type_to_id.get(typ).map(|id_type| (id_type, typ))
             })
     }

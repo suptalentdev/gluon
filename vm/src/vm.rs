@@ -5,11 +5,11 @@ use std::result::Result as StdResult;
 use std::string::String as StdString;
 use std::usize;
 
+use base::fnv::FnvMap;
+use base::kind::{ArcKind, Kind, KindEnv};
 use base::metadata::{Metadata, MetadataEnv};
 use base::symbol::{Name, Symbol, SymbolRef};
-use base::types::{Alias, AliasData, ArcType, Generic, Type, Kind, KindEnv, TypeEnv, PrimitiveEnv,
-                  ArcKind};
-use base::fnv::FnvMap;
+use base::types::{Alias, AliasData, ArcType, Generic, PrimitiveEnv, Type, TypeEnv};
 
 use macros::MacroEnv;
 use {Error, Result};
@@ -139,16 +139,14 @@ impl TypeEnv for VmEnv {
                     .id_to_type
                     .values()
                     .filter_map(|alias| {
-                        alias.typ
-                            .as_ref()
-                            .and_then(|typ| {
-                                match **typ {
-                                    Type::Variants(ref ctors) => {
-                                        ctors.iter().find(|ctor| *ctor.0 == *id).map(|t| &t.1)
-                                    }
-                                    _ => None,
-                                }
-                            })
+                        match *alias.typ {
+                            Type::Variant(ref row) => {
+                                row.row_iter()
+                                    .find(|field| *field.name == *id)
+                                    .map(|field| &field.typ)
+                            }
+                            _ => None,
+                        }
                     })
                     .next()
                     .map(|ctor| ctor)
@@ -166,9 +164,8 @@ impl TypeEnv for VmEnv {
 impl PrimitiveEnv for VmEnv {
     fn get_bool(&self) -> &ArcType {
         self.find_type_info("std.types.Bool")
-            .ok()
-            .and_then(|alias| match alias {
-                Cow::Borrowed(alias) => alias.typ.as_ref(),
+            .map(|alias| match alias {
+                Cow::Borrowed(alias) => &alias.typ,
                 Cow::Owned(_) => panic!("Expected to be able to retrieve a borrowed bool type"),
             })
             .expect("std.types.Bool")
@@ -263,7 +260,7 @@ impl VmEnv {
             };
             // HACK Can't return the data directly due to the use of cow on the type
             let next_type = map_cow_option(typ.clone(), |typ| {
-                typ.field_iter()
+                typ.row_iter()
                     .enumerate()
                     .find(|&(_, field)| field.name.as_ref() == field_name)
                     .map(|(index, field)| {
@@ -342,7 +339,7 @@ impl GlobalVmState {
                                              Alias::from(AliasData {
                                                  name: Symbol::from(name),
                                                  args: Vec::new(),
-                                                 typ: None,
+                                                 typ: Type::opaque(),
                                              }));
         }
 
@@ -439,7 +436,7 @@ impl GlobalVmState {
                                          Alias::from(AliasData {
                                              name: n,
                                              args: args,
-                                             typ: None,
+                                             typ: Type::opaque(),
                                          }));
             Ok(t)
         }

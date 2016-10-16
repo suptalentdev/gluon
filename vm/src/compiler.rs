@@ -1,12 +1,11 @@
 use std::ops::{Deref, DerefMut};
 use interner::InternedStr;
-use base::ast::{Literal, Pattern, TypedIdent};
+use base::ast::{Literal, Pattern, TypedIdent, Typed, DisplayEnv, SpannedExpr, Expr};
 use base::instantiate;
-use base::symbol::{Symbol, SymbolRef, SymbolModule};
-use base::ast::{Typed, DisplayEnv, SpannedExpr, Expr};
-use base::types;
-use base::types::{Alias, KindEnv, ArcType, Type, TypeEnv};
+use base::kind::{ArcKind, KindEnv};
+use base::types::{self, Alias, ArcType, Type, TypeEnv};
 use base::scoped_map::ScopedMap;
+use base::symbol::{Symbol, SymbolRef, SymbolModule};
 use types::*;
 use vm::GlobalVmState;
 use self::Variable::*;
@@ -256,20 +255,18 @@ impl CompilerEnv for TypeInfos {
         self.id_to_type
             .iter()
             .filter_map(|(_, ref alias)| {
-                alias.typ.as_ref().and_then(|typ| {
-                    match **typ {
-                        Type::Variants(ref variants) => {
-                            variants.iter()
-                                .enumerate()
-                                .find(|&(_, v)| v.0 == *id)
-                        }
-                        _ => None,
+                match *alias.typ {
+                    Type::Variant(ref row) => {
+                        row.row_iter()
+                            .enumerate()
+                            .find(|&(_, field)| field.name == *id)
                     }
-                })
+                    _ => None,
+                }
             })
             .next()
-            .map(|(tag, &(_, ref typ))| {
-                Variable::Constructor(tag as VmTag, count_function_args(&typ))
+            .map(|(tag, field)| {
+                Variable::Constructor(tag as VmTag, count_function_args(&field.typ))
             })
     }
 }
@@ -283,7 +280,7 @@ pub struct Compiler<'a> {
 }
 
 impl<'a> KindEnv for Compiler<'a> {
-    fn find_kind(&self, _type_name: &SymbolRef) -> Option<types::ArcKind> {
+    fn find_kind(&self, _type_name: &SymbolRef) -> Option<ArcKind> {
         None
     }
 }
@@ -332,17 +329,18 @@ impl<'a> Compiler<'a> {
             .iter()
             .filter_map(|(_, typ)| {
                 match **typ {
-                    Type::Variants(ref variants) => {
-                        variants.iter()
+                    Type::Variant(ref row) => {
+                        row.row_iter()
                             .enumerate()
-                            .find(|&(_, v)| v.0 == *id)
+                            .find(|&(_, field)| field.name == *id)
                     }
                     _ => None,
                 }
             })
             .next()
-            .map(|(tag, &(_, ref typ))| {
-                Constructor(tag as VmIndex, types::arg_iter(typ).count() as VmIndex)
+            .map(|(tag, field)| {
+                Constructor(tag as VmIndex,
+                            types::arg_iter(&field.typ).count() as VmIndex)
             })
             .or_else(|| {
                 current.stack
@@ -390,7 +388,7 @@ impl<'a> Compiler<'a> {
     fn find_field(&self, typ: &ArcType, field: &Symbol) -> Option<FieldAccess> {
         // Remove all type aliases to get the actual record type
         let typ = instantiate::remove_aliases_cow(self, typ);
-        let mut iter = typ.field_iter();
+        let mut iter = typ.row_iter();
         match iter.by_ref().position(|f| f.name.name_eq(field)) {
             Some(index) => {
                 for _ in iter.by_ref() {}
@@ -407,10 +405,10 @@ impl<'a> Compiler<'a> {
 
     fn find_tag(&self, typ: &ArcType, constructor: &Symbol) -> Option<VmTag> {
         match **instantiate::remove_aliases_cow(self, typ) {
-            Type::Variants(ref variants) => {
-                variants.iter()
+            Type::Variant(ref row) => {
+                row.row_iter()
                     .enumerate()
-                    .find(|&(_, v)| v.0 == *constructor)
+                    .find(|&(_, field)| field.name == *constructor)
                     .map(|(tag, _)| tag as VmTag)
             }
             _ => None,
@@ -735,8 +733,7 @@ impl<'a> Compiler<'a> {
             Expr::TypeBindings(ref type_bindings, ref expr) => {
                 for bind in type_bindings {
                     self.stack_types.insert(bind.alias.name.clone(), bind.alias.clone());
-                    let typ = bind.alias.typ.as_ref().expect("TypeBinding type").clone();
-                    self.stack_constructors.insert(bind.name.clone(), typ);
+                    self.stack_constructors.insert(bind.name.clone(), bind.alias.typ.clone());
                 }
                 return Ok(Some(expr));
             }
@@ -792,14 +789,12 @@ impl<'a> Compiler<'a> {
                     // name are imported. Without this aliases may not be traversed properly
                     self.stack_types.insert(alias.name.clone(), alias.clone());
                     self.stack_types.insert(name.clone(), alias.clone());
-                    if let Some(ref typ) = alias.typ {
-                        self.stack_constructors.insert(alias.name.clone(), typ.clone());
-                        self.stack_constructors.insert(name.clone(), typ.clone());
-                    }
+                    self.stack_constructors.insert(alias.name.clone(), alias.typ.clone());
+                    self.stack_constructors.insert(name.clone(), alias.typ.clone());
                 });
                 match *typ {
                     Type::Record(_) => {
-                        let mut field_iter = typ.field_iter();
+                        let mut field_iter = typ.row_iter();
                         let number_of_fields = field_iter.by_ref().count();
                         let is_polymorphic = **field_iter.current_type() != Type::EmptyRow;
                         if fields.len() == 0 ||
@@ -821,7 +816,7 @@ impl<'a> Compiler<'a> {
                             }
                         } else {
                             function.emit(Split);
-                            for field in typ.field_iter() {
+                            for field in typ.row_iter() {
                                 let name = match fields.iter()
                                     .find(|tup| tup.0.name_eq(&field.name)) {
                                     Some(&(ref name, ref bind)) => {
