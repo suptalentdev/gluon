@@ -20,7 +20,11 @@ pub fn intern(s: &str) -> String {
 type SpExpr = SpannedExpr<String>;
 
 fn no_loc<T>(value: T) -> Spanned<T, BytePos> {
-    pos::spanned(Span::default(), value)
+    pos::spanned(Span {
+                     start: BytePos::from(0),
+                     end: BytePos::from(0),
+                 },
+                 value)
 }
 
 fn binop(l: SpExpr, s: &str, r: SpExpr) -> SpExpr {
@@ -408,15 +412,24 @@ fn span_identifier() {
     let _ = ::env_logger::init();
 
     let e = parse_new!("test");
-    assert_eq!(e.span, Span::new(BytePos::from(0), BytePos::from(4)));
+    assert_eq!(e.span,
+               Span {
+                   start: BytePos::from(0),
+                   end: BytePos::from(4),
+               });
 }
+
 
 #[test]
 fn span_integer() {
     let _ = ::env_logger::init();
 
     let e = parse_new!("1234");
-    assert_eq!(e.span, Span::new(BytePos::from(0), BytePos::from(4)));
+    assert_eq!(e.span,
+               Span {
+                   start: BytePos::from(0),
+                   end: BytePos::from(4),
+               });
 }
 
 // FIXME The span of string literals includes the spaces after them
@@ -426,7 +439,11 @@ fn span_string_literal() {
     let _ = ::env_logger::init();
 
     let e = parse_new!(r#" "test" "#);
-    assert_eq!(e.span, Span::new(BytePos::from(1), BytePos::from(7)));
+    assert_eq!(e.span,
+               Span {
+                   start: BytePos::from(1),
+                   end: BytePos::from(7),
+               });
 }
 
 #[test]
@@ -434,7 +451,11 @@ fn span_app() {
     let _ = ::env_logger::init();
 
     let e = parse_new!(r#" f 123 "asd""#);
-    assert_eq!(e.span, Span::new(BytePos::from(1), BytePos::from(12)));
+    assert_eq!(e.span,
+               Span {
+                   start: BytePos::from(1),
+                   end: BytePos::from(12),
+               });
 }
 
 #[test]
@@ -446,7 +467,11 @@ match False with
     | True -> "asd"
     | False -> ""
 "#);
-    assert_eq!(e.span, Span::new(BytePos::from(1), BytePos::from(55)));
+    assert_eq!(e.span,
+               Span {
+                   start: BytePos::from(1),
+                   end: BytePos::from(55),
+               });
 }
 
 #[test]
@@ -459,7 +484,11 @@ if True then
 else
     123.45
 "#);
-    assert_eq!(e.span, Span::new(BytePos::from(1), BytePos::from(35)));
+    assert_eq!(e.span,
+               Span {
+                   start: BytePos::from(1),
+                   end: BytePos::from(35),
+               });
 }
 
 #[test]
@@ -467,17 +496,29 @@ fn span_byte() {
     let _ = ::env_logger::init();
 
     let e = parse_new!(r#"124b"#);
-    assert_eq!(e.span, Span::new(BytePos::from(0), BytePos::from(4)));
+    assert_eq!(e.span,
+               Span {
+                   start: BytePos::from(0),
+                   end: BytePos::from(4),
+               });
 }
 
 #[test]
 fn span_field_access() {
     let _ = ::env_logger::init();
     let expr = parse_new!("record.x");
-    assert_eq!(expr.span, Span::new(BytePos::from(0), BytePos::from(8)));
+    assert_eq!(expr.span,
+               Span {
+                   start: BytePos::from(0),
+                   end: BytePos::from(8),
+               });
     match expr.value {
         Expr::Projection(ref e, _, _) => {
-            assert_eq!(e.span, Span::new(BytePos::from(0), BytePos::from(6)));
+            assert_eq!(e.span,
+                       Span {
+                           start: BytePos::from(0),
+                           end: BytePos::from(6),
+                       });
         }
         _ => panic!(),
     }
@@ -572,7 +613,10 @@ fn partial_field_access() {
     assert!(e.is_err());
     assert_eq!(e.unwrap_err().0,
                Some(Spanned {
-                   span: Span::default(),
+                   span: Span {
+                       start: BytePos::from(0),
+                       end: BytePos::from(0),
+                   },
                    value: Expr::Projection(Box::new(id("test")), intern(""), Type::hole()),
                }));
 }
@@ -588,9 +632,15 @@ test
     assert!(e.is_err());
     assert_eq!(e.unwrap_err().0,
                Some(Spanned {
-                   span: Span::default(),
+                   span: Span {
+                       start: BytePos::from(0),
+                       end: BytePos::from(0),
+                   },
                    value: Expr::Block(vec![Spanned {
-                                               span: Span::new(BytePos::from(0), BytePos::from(0)),
+                                               span: Span {
+                                                   start: BytePos::from(0),
+                                                   end: BytePos::from(0),
+                                               },
                                                value: Expr::Projection(Box::new(id("test")),
                                                                        intern(""),
                                                                        Type::hole()),

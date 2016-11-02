@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::fmt;
 
 use base::ast::is_operator_char;
-use base::pos::{BytePos, Column, Line, Location, Span, Spanned, NO_EXPANSION};
+use base::pos::{BytePos, Column, Line, Location, Span, Spanned};
 
 use combine::primitives::{Consumed, Error as CombineError, RangeStream};
 use combine::combinator::EnvParser;
@@ -464,7 +464,6 @@ impl<'input, I> Lexer<'input, I>
                     span: Span {
                         start: loc,
                         end: loc,
-                        expansion_id: NO_EXPANSION,
                     },
                     value: Token::EOF,
                 };
@@ -485,7 +484,6 @@ impl<'input, I> Lexer<'input, I>
                     span: Span {
                         start: start,
                         end: end,
-                        expansion_id: NO_EXPANSION,
                     },
                     value: token,
                 }
@@ -496,7 +494,6 @@ impl<'input, I> Lexer<'input, I>
                 let span = Span {
                     start: start,
                     end: start,
-                    expansion_id: NO_EXPANSION,
                 };
                 self.end_span = Some(span);
                 SpannedToken {
@@ -683,7 +680,6 @@ impl<'input, I> Lexer<'input, I>
                     self.end_span = Some(Span {
                         start: loc,
                         end: loc,
-                        expansion_id: NO_EXPANSION,
                     });
                 }
                 Err(err)
