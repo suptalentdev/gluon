@@ -6,5 +6,3 @@
 
 target
 Cargo.lock
-
-parser/src/grammar.rs
