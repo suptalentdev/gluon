@@ -96,7 +96,7 @@ pub struct Location {
 }
 
 impl Location {
-    pub fn shift(mut self, ch: char) -> Location {
+    pub fn bump(&mut self, ch: char) {
         if ch == '\n' {
             self.line += Line::from(1);
             self.column = Column::from(0);
@@ -104,6 +104,10 @@ impl Location {
             self.column += Column::from(1);
         }
         self.absolute += BytePos::from(ch.len_utf8());
+    }
+
+    pub fn line_offset(mut self, offset: Column) -> Location {
+        self.column += offset;
         self
     }
 }
@@ -220,17 +224,6 @@ pub struct Spanned<T, Pos> {
     pub value: T,
 }
 
-impl<T, Pos> Spanned<T, Pos> {
-    pub fn map<U, F>(self, mut f: F) -> Spanned<U, Pos>
-        where F: FnMut(T) -> U,
-    {
-        Spanned {
-            span: self.span,
-            value: f(self.value),
-        }
-    }
-}
-
 impl<T: PartialEq, Pos> PartialEq for Spanned<T, Pos> {
     fn eq(&self, other: &Spanned<T, Pos>) -> bool {
         self.value == other.value
@@ -243,14 +236,6 @@ impl<T: fmt::Display, Pos: fmt::Display> fmt::Display for Spanned<T, Pos> {
     }
 }
 
-pub fn span<Pos>(start: Pos, end: Pos) -> Span<Pos> {
-    Span {
-        start: start,
-        end: end,
-        expansion_id: NO_EXPANSION,
-    }
-}
-
 pub fn spanned<T, Pos>(span: Span<Pos>, value: T) -> Spanned<T, Pos> {
     Spanned {
         span: span,
@@ -260,7 +245,11 @@ pub fn spanned<T, Pos>(span: Span<Pos>, value: T) -> Spanned<T, Pos> {
 
 pub fn spanned2<T, Pos>(start: Pos, end: Pos, value: T) -> Spanned<T, Pos> {
     Spanned {
-        span: span(start, end),
+        span: Span {
+            start: start,
+            end: end,
+            expansion_id: NO_EXPANSION,
+        },
         value: value,
     }
 }

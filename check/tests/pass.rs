@@ -731,9 +731,10 @@ in f "123"
     let result = support::typecheck(text);
 
     assert!(result.is_err());
-    let errors: Vec<_> = result.unwrap_err().into();
-    assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].span, Span::new(BytePos::from(26), BytePos::from(31)));
+    let err = result.unwrap_err();
+    assert_eq!(err.errors.len(), 1);
+    assert_eq!(err.errors[0].span,
+               Span::new(BytePos::from(26), BytePos::from(31)));
 }
 
 /// Test that overload resolution selects the closest implementation that matches even if another

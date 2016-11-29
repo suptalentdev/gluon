@@ -4,12 +4,12 @@ extern crate gluon_base as base;
 extern crate gluon_parser as parser;
 
 use base::ast::SpannedExpr;
-use parser::{parse_string, ParseErrors};
+use parser::{parse_string, Error};
 use support::MockEnv;
 
 mod support;
 
-fn parse(text: &str) -> Result<SpannedExpr<String>, ParseErrors> {
+fn parse(text: &str) -> Result<SpannedExpr<String>, Error> {
     parse_string(&mut MockEnv::new(), text).map_err(|(_, err)| err)
 }
 
