@@ -130,8 +130,17 @@ pub struct TypeVariable {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Generic<Id> {
-    pub kind: ArcKind,
     pub id: Id,
+    pub kind: ArcKind,
+}
+
+impl<Id> Generic<Id> {
+    pub fn new(id: Id, kind: ArcKind) -> Generic<Id> {
+        Generic {
+            id: id,
+            kind: kind,
+        }
+    }
 }
 
 /// An alias is wrapper around `Type::Alias`, allowing it to be cheaply converted to a type and dereferenced
@@ -221,6 +230,15 @@ pub struct Field<Id, T = ArcType<Id>> {
 /// the number of elements in the `SmallVec` so that it fills out the entire `Type` enum while not
 /// increasing the size of `Type`.
 pub type AppVec<T> = SmallVec<[T; 2]>;
+
+impl<Id, T> Field<Id, T> {
+    pub fn new(name: Id, typ: T) -> Field<Id, T> {
+        Field {
+            name: name,
+            typ: typ,
+        }
+    }
+}
 
 /// The representation of gluon's types.
 ///

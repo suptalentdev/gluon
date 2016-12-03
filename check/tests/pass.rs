@@ -546,20 +546,12 @@ return 1
                            }])
     };
     let test = alias("Test", &["a"], variant("Test"));
-    let m = Generic {
-        kind: Kind::function(Kind::typ(), Kind::typ()),
-        id: intern("m"),
-    };
+    let m = Generic::new(intern("m"), Kind::function(Kind::typ(), Kind::typ()));
 
     let id = alias("Id", &["a"], variant("Id"));
     let id_t = Type::alias(intern("IdT"),
-                           vec![
-                               m.clone(),
-                               Generic {
-                                   kind: Kind::typ(),
-                                   id: intern("a"),
-                               },
-                            ],
+                           vec![m.clone(),
+                                Generic::new(intern("a"), Kind::typ())],
                            Type::app(Type::generic(m),
                                      collect![Type::app(id, collect![typ("a")])]));
     let expected = Ok(Type::app(id_t, collect![test, typ("Int")]));
@@ -731,10 +723,9 @@ in f "123"
     let result = support::typecheck(text);
 
     assert!(result.is_err());
-    let err = result.unwrap_err();
-    assert_eq!(err.errors.len(), 1);
-    assert_eq!(err.errors[0].span,
-               Span::new(BytePos::from(26), BytePos::from(31)));
+    let errors: Vec<_> = result.unwrap_err().into();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].span, Span::new(BytePos::from(26), BytePos::from(31)));
 }
 
 /// Test that overload resolution selects the closest implementation that matches even if another
