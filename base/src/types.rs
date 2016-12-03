@@ -130,17 +130,8 @@ pub struct TypeVariable {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Generic<Id> {
-    pub id: Id,
     pub kind: ArcKind,
-}
-
-impl<Id> Generic<Id> {
-    pub fn new(id: Id, kind: ArcKind) -> Generic<Id> {
-        Generic {
-            id: id,
-            kind: kind,
-        }
-    }
+    pub id: Id,
 }
 
 /// An alias is wrapper around `Type::Alias`, allowing it to be cheaply converted to a type and dereferenced

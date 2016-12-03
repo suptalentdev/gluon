@@ -273,7 +273,10 @@ impl<'a> KindCheck<'a> {
     pub fn finalize_generic(&self, var: &Generic<Symbol>) -> Generic<Symbol> {
         let mut kind = var.kind.clone();
         kind = update_kind(&self.subs, kind, Some(&self.type_kind));
-        Generic::new(var.id.clone(), kind)
+        types::Generic {
+            id: var.id.clone(),
+            kind: kind,
+        }
     }
 }
 
