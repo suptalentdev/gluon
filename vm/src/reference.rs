@@ -4,15 +4,16 @@ use std::sync::Mutex;
 use std::marker::PhantomData;
 
 use base::types::{Type, ArcType};
+use base::fnv::FnvMap;
 use Result;
 use gc::{Gc, GcPtr, Move, Traverseable};
 use vm::Thread;
 use thread::ThreadInternal;
-use value::{Value, Cloner};
+use value::{Value, deep_clone};
 use api::{RuntimeResult, Generic, Userdata, VmType, WithVM};
 use api::generic::A;
 
-pub struct Reference<T> {
+struct Reference<T> {
     value: Mutex<Value>,
     thread: GcPtr<Thread>,
     _marker: PhantomData<T>,
@@ -21,15 +22,19 @@ pub struct Reference<T> {
 impl<T> Userdata for Reference<T>
     where T: Any + Send + Sync,
 {
-    fn deep_clone(&self, deep_cloner: &mut Cloner) -> Result<GcPtr<Box<Userdata>>> {
+    fn deep_clone(&self,
+                  visited: &mut FnvMap<*const (), Value>,
+                  gc: &mut Gc,
+                  thread: &Thread)
+                  -> Result<GcPtr<Box<Userdata>>> {
         let value = self.value.lock().unwrap();
-        let cloned_value = deep_cloner.deep_clone(*value)?;
+        let cloned_value = deep_clone(*value, visited, gc, thread)?;
         let data: Box<Userdata> = Box::new(Reference {
             value: Mutex::new(cloned_value),
-            thread: unsafe { GcPtr::from_raw(deep_cloner.thread()) },
+            thread: unsafe { GcPtr::from_raw(thread) },
             _marker: PhantomData::<A>,
         });
-        deep_cloner.gc().alloc(Move(data))
+        gc.alloc(Move(data))
     }
 }
 
@@ -60,7 +65,7 @@ impl<T> VmType for Reference<T>
 }
 
 fn set(r: &Reference<A>, a: Generic<A>) -> RuntimeResult<(), String> {
-    match r.thread.deep_clone_value(&r.thread, a.0) {
+    match r.thread.deep_clone_value(a.0) {
         Ok(a) => {
             *r.value.lock().unwrap() = a;
             RuntimeResult::Return(())

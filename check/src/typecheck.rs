@@ -21,7 +21,7 @@ use substitution::Substitution;
 use rename::RenameError;
 use unify::Error as UnifyError;
 use unify;
-use unify_type::{self, Error as UnifyTypeError, instantiate_generic_variables};
+use unify_type::{self, Error as UnifyTypeError};
 
 /// Type representing a single error when checking a type
 #[derive(Debug, PartialEq)]
@@ -49,9 +49,13 @@ pub enum TypeError<I> {
     /// Type is not a type which has any fields
     InvalidProjection(ArcType<I>),
     /// Expected to find a record with the following fields
-    UndefinedRecord { fields: Vec<I> },
+    UndefinedRecord {
+        fields: Vec<I>,
+    },
     /// Found a case expression without any alternatives
     EmptyCase,
+    /// An `Error` expression was found indicating an invalid parse
+    ErrorExpression,
 }
 
 impl<I> From<KindCheckError<I>> for TypeError<I>
@@ -87,7 +91,8 @@ impl<I: fmt::Display + AsRef<str>> fmt::Display for TypeError<I> {
                           errors were found during unification:",
                          expected,
                          actual,
-                         errors.len())?;
+                         errors.len())
+                    ?;
                 if errors.is_empty() {
                     return Ok(());
                 }
@@ -123,6 +128,7 @@ impl<I: fmt::Display + AsRef<str>> fmt::Display for TypeError<I> {
                 Ok(())
             }
             EmptyCase => write!(f, "`case` expression with no alternatives"),
+            ErrorExpression => write!(f, "`Error` expression found during typechecking"),
         }
     }
 }
@@ -334,7 +340,10 @@ impl<'a> Typecheck<'a> {
     /// `let` basically infers that the variables in `id` does not refer to anything outside the
     /// `let` scope and can thus be "generalized" into `a -> a` which is instantiated with a fresh
     /// type variable in the `id 2` call.
-    fn generalize_variables(&mut self, level: u32, expr: &mut SpannedExpr<Symbol>) {
+    fn generalize_variables(&mut self,
+                            level: u32,
+                            args: &mut [TypedIdent<Symbol>],
+                            expr: &mut SpannedExpr<Symbol>) {
         self.type_variables.enter_scope();
 
         // Replaces all type variables with their inferred types
@@ -352,12 +361,16 @@ impl<'a> Typecheck<'a> {
                 }
             }
         }
-
-        ReplaceVisitor {
+        {
+            let mut visitor = ReplaceVisitor {
                 level: level,
                 tc: self,
+            };
+            visitor.visit_expr(expr);
+            for arg in args {
+                visitor.visit_typ(&mut arg.typ)
             }
-            .visit_expr(expr);
+        }
 
         self.type_variables.exit_scope();
     }
@@ -391,7 +404,8 @@ impl<'a> Typecheck<'a> {
         typ = types::walk_move_type(typ, &mut unroll_typ);
         // Only the 'tail' expression need to be generalized at this point as all bindings
         // will have already been generalized
-        self.generalize_variables(0, tail_expr(expr));
+        self.generalize_variables(0, &mut [], tail_expr(expr));
+
         if self.errors.has_errors() {
             Err(mem::replace(&mut self.errors, Errors::new()))
         } else {
@@ -675,9 +689,7 @@ impl<'a> Typecheck<'a> {
                     }
                 };
                 let id_type = self.instantiate(&id_type);
-                let record_type = instantiate_generic_variables(&mut self.named_variables,
-                                                                &self.subs,
-                                                                &record_type);
+                let record_type = self.instantiate_(&record_type);
                 self.unify(&Type::record(new_types, new_fields), record_type)?;
                 *typ = id_type.clone();
                 Ok(TailCall::Type(id_type.clone()))
@@ -689,6 +701,7 @@ impl<'a> Typecheck<'a> {
                 }
                 Ok(TailCall::Type(self.typecheck(last)))
             }
+            Expr::Error => Err(TypeError::ErrorExpression),
         }
     }
 
@@ -741,7 +754,10 @@ impl<'a> Typecheck<'a> {
 
                 let mut duplicated_fields = FnvSet::default();
                 for field in associated_types.iter().chain(fields.iter()) {
-                    if self.error_on_duplicated_field(&mut duplicated_fields, span, field.0.clone()) {
+                    if 
+                        self.error_on_duplicated_field(&mut duplicated_fields,
+                                                       span,
+                                                       field.0.clone()) {
                         pattern_fields.push(field.0.clone());
                     }
                 }
@@ -770,9 +786,7 @@ impl<'a> Typecheck<'a> {
                     }
                 };
                 typ = self.instantiate(&typ);
-                actual_type = instantiate_generic_variables(&mut self.named_variables,
-                                                            &self.subs,
-                                                            &actual_type);
+                actual_type = self.instantiate_(&actual_type);
                 self.unify_span(span, &match_type, typ);
                 match_type = actual_type;
 
@@ -874,7 +888,7 @@ impl<'a> Typecheck<'a> {
 
             if !is_recursive {
                 // Merge the type declaration and the actual type
-                self.generalize_variables(level, &mut bind.expr);
+                self.generalize_variables(level, &mut bind.args, &mut bind.expr);
                 self.typecheck_pattern(&mut bind.name, typ);
             } else {
                 types.push(typ);
@@ -892,7 +906,7 @@ impl<'a> Typecheck<'a> {
         // Once all variables inside the let has been unified we can quantify them
         debug!("Generalize {}", level);
         for bind in bindings {
-            self.generalize_variables(level, &mut bind.expr);
+            self.generalize_variables(level, &mut bind.args, &mut bind.expr);
             if let Some(typ) = self.finish_type(level, &bind.typ) {
                 bind.typ = typ;
             }
@@ -1278,7 +1292,31 @@ impl<'a> Typecheck<'a> {
 
     fn instantiate(&mut self, typ: &ArcType) -> ArcType {
         self.named_variables.clear();
-        instantiate_generic_variables(&mut self.named_variables, &self.subs, typ)
+        self.instantiate_(typ)
+    }
+
+    fn instantiate_(&mut self, typ: &ArcType) -> ArcType {
+        use std::collections::hash_map::Entry;
+
+        types::walk_move_type(typ.clone(),
+                              &mut |typ| {
+            match *typ {
+                Type::Generic(ref generic) => {
+                    let var = match self.named_variables.entry(generic.id.clone()) {
+                        Entry::Vacant(entry) => entry.insert(self.subs.new_var()).clone(),
+                        Entry::Occupied(entry) => entry.get().clone(),
+                    };
+
+                    let mut var = (*var).clone();
+                    if let Type::Variable(ref mut var) = var {
+                        var.kind = generic.kind.clone();
+                    }
+
+                    Some(ArcType::from(var))
+                }
+                _ => None,
+            }
+        })
     }
 
     fn error_on_duplicated_field(&mut self,
@@ -1302,8 +1340,8 @@ fn with_pattern_types<F>(fields: &[(Symbol, Option<Symbol>)], typ: &ArcType, mut
     for field in fields {
         // If the field in the pattern does not exist (undefined field error) then skip it as
         // the error itself will already have been reported
-        if let Some(associated_type) = typ.row_iter()
-            .find(|type_field| type_field.name.name_eq(&field.0)) {
+        let opt = typ.row_iter().find(|type_field| type_field.name.name_eq(&field.0));
+        if let Some(associated_type) = opt {
             f(&field.0, &field.1, &associated_type.typ);
         }
     }

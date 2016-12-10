@@ -5,12 +5,12 @@ use std::ops::Deref;
 use Result;
 use base::fnv::FnvMap;
 
-use gc::{Gc, Traverseable};
-use value::GcStr;
+use gc::{GcPtr, Gc, Traverseable};
+use array::Str;
 
 /// Interned strings which allow for fast equality checks and hashing
 #[derive(Copy, Clone, Eq)]
-pub struct InternedStr(GcStr);
+pub struct InternedStr(GcPtr<Str>);
 
 impl PartialEq<InternedStr> for InternedStr {
     fn eq(&self, other: &InternedStr) -> bool {
@@ -60,7 +60,7 @@ impl AsRef<str> for InternedStr {
 }
 
 impl InternedStr {
-    pub fn inner(&self) -> GcStr {
+    pub fn inner(&self) -> GcPtr<Str> {
         self.0
     }
 }
@@ -91,7 +91,7 @@ impl Interner {
             Some(interned_str) => return Ok(*interned_str),
             None => (),
         }
-        let gc_str = unsafe { InternedStr(GcStr::from_utf8_unchecked(gc.alloc(s.as_bytes())?)) };
+        let gc_str = InternedStr(gc.alloc(s)?);
         // The key will live as long as the value it refers to and the static str never escapes
         // outside interner so this is safe
         let key: &'static str = unsafe { ::std::mem::transmute::<&str, &'static str>(&gc_str) };
