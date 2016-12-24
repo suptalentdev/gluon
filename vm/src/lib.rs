@@ -10,8 +10,12 @@ extern crate quick_error;
 extern crate mopa;
 #[macro_use]
 extern crate collect_mac;
+extern crate itertools;
+extern crate pretty;
 
+#[macro_use]
 extern crate gluon_base as base;
+extern crate gluon_check as check;
 
 #[macro_use]
 pub mod api;
@@ -22,6 +26,7 @@ pub mod gc;
 pub mod macros;
 pub mod thread;
 pub mod primitives;
+pub mod reference;
 pub mod stack;
 pub mod types;
 
@@ -29,7 +34,6 @@ mod array;
 mod field_map;
 mod interner;
 mod lazy;
-mod reference;
 mod source_map;
 mod value;
 mod vm;
@@ -104,5 +108,5 @@ quick_error! {
 
 /// Internal types and functions exposed to the main `gluon` crate
 pub mod internal {
-    pub use value::{Value, ClosureDataDef};
+    pub use value::{Value, ClosureDataDef, ValuePrinter};
 }

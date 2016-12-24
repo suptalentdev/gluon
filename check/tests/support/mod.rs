@@ -78,7 +78,7 @@ impl KindEnv for MockEnv {
 impl TypeEnv for MockEnv {
     fn find_type(&self, id: &SymbolRef) -> Option<&ArcType> {
         match id.as_ref() {
-            "False" | "True" => Some(&self.bool.typ),
+            "False" | "True" => Some(&self.bool.as_type()),
             _ => None,
         }
     }
@@ -97,7 +97,7 @@ impl TypeEnv for MockEnv {
 
 impl PrimitiveEnv for MockEnv {
     fn get_bool(&self) -> &ArcType {
-        &self.bool.typ
+        &self.bool.as_type()
     }
 }
 
@@ -127,7 +127,9 @@ impl<T> IdentEnv for MockIdentEnv<T>
     }
 }
 
-pub fn typecheck_expr(text: &str) -> (SpannedExpr<Symbol>, Result<ArcType, typecheck::Error>) {
+pub fn typecheck_expr_expected(text: &str,
+                               expected: Option<&ArcType>)
+                               -> (SpannedExpr<Symbol>, Result<ArcType, typecheck::Error>) {
     let mut expr = parse_new(text).unwrap_or_else(|(_, err)| panic!("{}", err));
 
     let env = MockEnv::new();
@@ -135,9 +137,13 @@ pub fn typecheck_expr(text: &str) -> (SpannedExpr<Symbol>, Result<ArcType, typec
     let mut interner = interner.borrow_mut();
     let mut tc = Typecheck::new("test".into(), &mut interner, &env);
 
-    let result = tc.typecheck_expr(&mut expr);
+    let result = tc.typecheck_expr_expected(&mut expr, expected);
 
     (expr, result)
+}
+
+pub fn typecheck_expr(text: &str) -> (SpannedExpr<Symbol>, Result<ArcType, typecheck::Error>) {
+    typecheck_expr_expected(text, None)
 }
 
 #[allow(dead_code)]

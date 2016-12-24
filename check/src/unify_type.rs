@@ -4,6 +4,7 @@ use std::mem;
 use smallvec::VecLike;
 
 use base::error::Errors;
+use base::fnv::FnvMap;
 use base::types::{self, AppVec, ArcType, Field, Type, TypeVariable, TypeEnv};
 use base::symbol::{Symbol, SymbolRef};
 use base::resolve::{self, Error as ResolveError};
@@ -279,8 +280,9 @@ fn do_zip_match<'a, U>(unifier: &mut UnifierState<'a, U>,
                 (_, _) => {
                     let lhs = lhs.as_ref().unwrap_or(expected);
                     let rhs = rhs.as_ref().unwrap_or(actual);
-                    unifier.try_match(lhs, rhs);
-                    Ok(None)
+                    // FIXME Maybe always return `None` here since the types before we removed the
+                    // aliases are probably more specific.
+                    Ok(unifier.try_match(lhs, rhs))
                 }
             }
         }
@@ -598,6 +600,34 @@ fn walk_move_types2<'a, I, F, T, R>(mut types: I, replaced: bool, output: &mut R
             None => (),
         }
     }
+}
+
+/// Replaces all instances `Type::Generic` in `typ` with fresh type variables (`Type::Variable`)
+pub fn instantiate_generic_variables(named_variables: &mut FnvMap<Symbol, ArcType>,
+                                     subs: &Substitution<ArcType>,
+                                     typ: &ArcType)
+                                     -> ArcType {
+    use std::collections::hash_map::Entry;
+
+    types::walk_move_type(typ.clone(),
+                          &mut |typ| {
+        match *typ {
+            Type::Generic(ref generic) => {
+                let var = match named_variables.entry(generic.id.clone()) {
+                    Entry::Vacant(entry) => entry.insert(subs.new_var()).clone(),
+                    Entry::Occupied(entry) => entry.get().clone(),
+                };
+
+                let mut var = (*var).clone();
+                if let Type::Variable(ref mut var) = var {
+                    var.kind = generic.kind.clone();
+                }
+
+                Some(ArcType::from(var))
+            }
+            _ => None,
+        }
+    })
 }
 
 pub fn merge_signature(subs: &Substitution<ArcType>,
