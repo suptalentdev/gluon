@@ -4,7 +4,7 @@ use gc::{DataDef, Gc, Traverseable, Move};
 use base::symbol::Symbol;
 use stack::{State, StackFrame};
 use vm::{self, Thread, Status, RootStr, RootedValue, Root};
-use value::{ArrayRepr, Cloner, DataStruct, ExternFunction, Value, ValueArray, Def};
+use value::{ArrayRepr, DataStruct, ExternFunction, Value, ValueArray, Def};
 use thread::{self, Context, RootedThread};
 use thread::ThreadInternal;
 use base::types::{self, ArcType, Type};
@@ -905,13 +905,6 @@ impl<T, V> fmt::Debug for OpaqueValue<T, V>
     }
 }
 
-impl<T, V> Clone for OpaqueValue<T, V>
-    where T: Deref<Target = Thread> + Clone,
-{
-    fn clone(&self) -> Self {
-        OpaqueValue(self.0.clone(), self.1.clone())
-    }
-}
 
 impl<T, V> OpaqueValue<T, V>
     where T: Deref<Target = Thread>,
@@ -942,13 +935,8 @@ impl<'vm, T, V> Pushable<'vm> for OpaqueValue<T, V>
           V: VmType,
           V::Type: Sized,
 {
-    fn push(self, thread: &'vm Thread, context: &mut Context) -> Result<()> {
-        let full_clone = !thread.can_share_values_with(&mut context.gc, self.0.vm());
-        let mut cloner = Cloner::new(thread, &mut context.gc);
-        if full_clone {
-            cloner.force_full_clone();
-        }
-        context.stack.push(cloner.deep_clone(*self.0)?);
+    fn push(self, _: &'vm Thread, context: &mut Context) -> Result<()> {
+        context.stack.push(*self.0);
         Ok(())
     }
 }
@@ -1539,17 +1527,6 @@ pub struct Function<T, F>
     _marker: PhantomData<F>,
 }
 
-impl<T, F> Clone for Function<T, F>
-    where T: Deref<Target = Thread> + Clone,
-{
-    fn clone(&self) -> Self {
-        Function {
-            value: self.value.clone(),
-            _marker: self._marker.clone(),
-        }
-    }
-}
-
 impl<T, F> Function<T, F>
     where T: Deref<Target = Thread>,
 {
@@ -1577,20 +1554,10 @@ impl<'vm, T, F: Any> Pushable<'vm> for Function<T, F>
         Ok(())
     }
 }
-
 impl<'vm, F> Getable<'vm> for Function<&'vm Thread, F> {
     fn from_value(vm: &'vm Thread, value: Variants) -> Option<Function<&'vm Thread, F>> {
         Some(Function {
             value: vm.root_value_ref(*value.0),
-            _marker: PhantomData,
-        })//TODO not type safe
-    }
-}
-
-impl<'vm, F> Getable<'vm> for Function<RootedThread, F> {
-    fn from_value(vm: &'vm Thread, value: Variants) -> Option<Self> {
-        Some(Function {
-            value: vm.root_value(*value.0),
             _marker: PhantomData,
         })//TODO not type safe
     }
