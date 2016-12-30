@@ -6,11 +6,11 @@ use base::kind::{ArcKind, KindEnv};
 use base::types::{self, Alias, ArcType, Type, TypeEnv};
 use base::scoped_map::ScopedMap;
 use base::symbol::{Symbol, SymbolRef, SymbolModule};
-use base::pos::{Line, NO_EXPANSION};
+use base::pos::Line;
 use base::source::Source;
 use types::*;
 use vm::GlobalVmState;
-use source_map::{LocalMap, SourceMap};
+use source_map::SourceMap;
 use self::Variable::*;
 
 use {Error, Result};
@@ -32,21 +32,6 @@ enum FieldAccess {
     Index(VmIndex),
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct UpvarInfo {
-    pub name: String,
-    pub typ: ArcType,
-}
-
-#[derive(Debug)]
-pub struct DebugInfo {
-    /// Maps instruction indexes to the line that spawned them
-    pub source_map: SourceMap,
-    pub local_map: LocalMap,
-    pub upvars: Vec<UpvarInfo>,
-    pub source_name: String,
-}
-
 #[derive(Debug)]
 pub struct CompiledFunction {
     pub args: VmIndex,
@@ -60,11 +45,12 @@ pub struct CompiledFunction {
     /// Storage for globals which are needed by the module which is currently being compiled
     pub module_globals: Vec<Symbol>,
     pub records: Vec<Vec<Symbol>>,
-    pub debug_info: DebugInfo,
+    /// Maps instruction indexes to the line that spawned them
+    pub source_map: SourceMap,
 }
 
 impl CompiledFunction {
-    pub fn new(args: VmIndex, id: Symbol, typ: ArcType, source_name: String) -> CompiledFunction {
+    pub fn new(args: VmIndex, id: Symbol, typ: ArcType) -> CompiledFunction {
         CompiledFunction {
             args: args,
             max_stack_size: 0,
@@ -75,27 +61,18 @@ impl CompiledFunction {
             strings: Vec::new(),
             module_globals: Vec::new(),
             records: Vec::new(),
-            debug_info: DebugInfo {
-                source_map: SourceMap::new(),
-                local_map: LocalMap::new(),
-                upvars: Vec::new(),
-                source_name: source_name,
-            },
+            source_map: SourceMap::new(),
         }
     }
 }
 
 struct FunctionEnv {
     /// The variables currently in scope in the this function.
-    stack: ScopedMap<Symbol, (VmIndex, ArcType)>,
-    /// The current size of the stack. Not the same as `stack.len()`.
+    stack: ScopedMap<Symbol, VmIndex>,
     /// The current size of the stack. Not the same as `stack.len()`.
     stack_size: VmIndex,
-    /// The variables which this function takes from the outer scope
-    free_vars: Vec<(Symbol, ArcType)>,
-    /// The line where instructions are currently being emitted
+    free_vars: Vec<Symbol>,
     current_line: Line,
-    emit_debug_info: bool,
     function: CompiledFunction,
 }
 
@@ -128,50 +105,24 @@ impl FunctionEnvs {
                       typ: ArcType) {
         compiler.stack_types.enter_scope();
         compiler.stack_constructors.enter_scope();
-        self.envs.push(FunctionEnv::new(args,
-                                        id,
-                                        typ,
-                                        compiler.source_name.clone(),
-                                        compiler.emit_debug_info));
+        self.envs.push(FunctionEnv::new(args, id, typ));
     }
 
-    fn end_function(&mut self, compiler: &mut Compiler, current_line: Line) -> FunctionEnv {
+    fn end_function(&mut self, compiler: &mut Compiler) -> FunctionEnv {
         compiler.stack_types.exit_scope();
         compiler.stack_constructors.exit_scope();
-        let instructions = self.function.instructions.len();
-        if compiler.emit_debug_info {
-            self.function.debug_info.source_map.close(instructions, current_line);
-            let function = &mut **self;
-            function.function
-                .debug_info
-                .upvars
-                .extend(function.free_vars
-                    .iter()
-                    .map(|&(ref name, ref typ)| {
-                        UpvarInfo {
-                            name: name.declared_name().to_string(),
-                            typ: typ.clone(),
-                        }
-                    }));
-        }
         self.envs.pop().expect("FunctionEnv in scope")
     }
 }
 
 impl FunctionEnv {
-    fn new(args: VmIndex,
-           id: Symbol,
-           typ: ArcType,
-           source_name: String,
-           emit_debug_info: bool)
-           -> FunctionEnv {
+    fn new(args: VmIndex, id: Symbol, typ: ArcType) -> FunctionEnv {
         FunctionEnv {
             free_vars: Vec::new(),
             stack: ScopedMap::new(),
             stack_size: 0,
-            function: CompiledFunction::new(args, id, typ, source_name),
+            function: CompiledFunction::new(args, id, typ),
             current_line: Line::from(0),
-            emit_debug_info: emit_debug_info,
         }
     }
 
@@ -189,13 +140,7 @@ impl FunctionEnv {
         }
 
         self.function.instructions.push(instruction);
-
-        if self.emit_debug_info {
-            self.function
-                .debug_info
-                .source_map
-                .emit(self.function.instructions.len() - 1, self.current_line);
-        }
+        self.function.source_map.emit(self.function.instructions.len() - 1, self.current_line);
     }
 
     fn increase_stack(&mut self, adjustment: VmIndex) {
@@ -254,11 +199,11 @@ impl FunctionEnv {
         self.emit(PushString(index as VmIndex));
     }
 
-    fn upvar(&mut self, s: &Symbol, typ: &ArcType) -> VmIndex {
-        match self.free_vars.iter().position(|t| t.0 == *s) {
+    fn upvar(&mut self, s: &Symbol) -> VmIndex {
+        match self.free_vars.iter().position(|t| t == s) {
             Some(index) => index as VmIndex,
             None => {
-                self.free_vars.push((s.clone(), typ.clone()));
+                self.free_vars.push(s.clone());
                 (self.free_vars.len() - 1) as VmIndex
             }
         }
@@ -268,24 +213,14 @@ impl FunctionEnv {
         (self.stack_size - 1) as VmIndex
     }
 
-    fn push_stack_var(&mut self, compiler: &Compiler, s: Symbol, typ: ArcType) {
+    fn push_stack_var(&mut self, compiler: &Compiler, s: Symbol) {
         self.increase_stack(1);
-        self.new_stack_var(compiler, s, typ)
+        self.new_stack_var(compiler, s)
     }
 
-    fn new_stack_var(&mut self, compiler: &Compiler, s: Symbol, typ: ArcType) {
+    fn new_stack_var(&mut self, _compiler: &Compiler, s: Symbol) {
         debug!("Push var: {:?} at {}", s, self.stack_size - 1);
-        let index = self.stack_size - 1;
-        if self.emit_debug_info && compiler.empty_symbol != s {
-            self.function
-                .debug_info
-                .local_map
-                .emit(self.function.instructions.len(),
-                      index,
-                      s.clone(),
-                      typ.clone());
-        }
-        self.stack.insert(s, (index, typ));
+        self.stack.insert(s, self.stack_size - 1);
     }
 
     fn exit_scope(&mut self, compiler: &Compiler) -> VmIndex {
@@ -293,9 +228,6 @@ impl FunctionEnv {
         for x in self.stack.exit_scope() {
             count += 1;
             debug!("Pop var: {:?}", x);
-            if self.emit_debug_info && compiler.empty_symbol != x.0 {
-                self.function.debug_info.local_map.close(self.function.instructions.len());
-            }
         }
         count
     }
@@ -340,8 +272,6 @@ pub struct Compiler<'a> {
     stack_constructors: ScopedMap<Symbol, ArcType>,
     stack_types: ScopedMap<Symbol, Alias<Symbol, ArcType>>,
     source: &'a Source<'a>,
-    source_name: String,
-    emit_debug_info: bool,
     empty_symbol: Symbol,
 }
 
@@ -376,9 +306,7 @@ impl<'a> Compiler<'a> {
     pub fn new(globals: &'a (CompilerEnv + 'a),
                vm: &'a GlobalVmState,
                mut symbols: SymbolModule<'a>,
-               source: &'a Source<'a>,
-               source_name: String,
-               emit_debug_info: bool)
+               source: &'a Source<'a>)
                -> Compiler<'a> {
         Compiler {
             globals: globals,
@@ -388,8 +316,6 @@ impl<'a> Compiler<'a> {
             stack_constructors: ScopedMap::new(),
             stack_types: ScopedMap::new(),
             source: source,
-            source_name: source_name,
-            emit_debug_info: emit_debug_info,
         }
     }
 
@@ -416,7 +342,7 @@ impl<'a> Compiler<'a> {
             .or_else(|| {
                 current.stack
                     .get(id)
-                    .map(|&(index, _)| Stack(index))
+                    .map(|&index| Stack(index))
                     .or_else(|| {
                         let i = current.envs.len() - 1;
                         let (rest, current) = current.envs.split_at_mut(i);
@@ -425,7 +351,7 @@ impl<'a> Compiler<'a> {
                             .filter_map(|env| {
                                 env.stack
                                     .get(id)
-                                    .map(|&(_, ref typ)| UpVar(current[0].upvar(id, typ)))
+                                    .map(|_| UpVar(current[0].upvar(id)))
                             })
                             .next()
                     })
@@ -485,11 +411,9 @@ impl<'a> Compiler<'a> {
         let id = self.empty_symbol.clone();
         let typ = Type::function(vec![],
                                  ArcType::from(expr.env_type_of(&self.globals).clone()));
-
         env.start_function(self, 0, id, typ);
         self.compile(expr, &mut env, true)?;
-        let current_line = self.source.line_number_at_byte(expr.span.end);
-        let FunctionEnv { function, .. } = env.end_function(self, current_line);
+        let FunctionEnv { function, .. } = env.end_function(self);
         Ok(function)
     }
 
@@ -521,21 +445,17 @@ impl<'a> Compiler<'a> {
         // Store a stack of expressions which need to be cleaned up after this "tailcall" loop is
         // done
         function.stack.enter_scope();
-        // Don't update the current_line for macro expanded code as the lines in that code do not come
-        // from this module
-        if expr.span.expansion_id == NO_EXPANSION {
+        let saved_line = function.current_line;
+        function.current_line = self.source
+            .line_number_at_byte(expr.span.start);
+        while let Some(next) = self.compile_(expr, function, tail_position)? {
+            expr = next;
             function.current_line = self.source
                 .line_number_at_byte(expr.span.start);
         }
-        while let Some(next) = self.compile_(expr, function, tail_position)? {
-            expr = next;
-            if expr.span.expansion_id == NO_EXPANSION {
-                function.current_line = self.source
-                    .line_number_at_byte(expr.span.start);
-            }
-        }
         let count = function.exit_scope(self);
         function.emit(Slide(count));
+        function.current_line = saved_line;
         Ok(())
     }
 
@@ -645,7 +565,7 @@ impl<'a> Compiler<'a> {
                         });
                         match bind.name.value {
                             Pattern::Ident(ref name) => {
-                                function.new_stack_var(self, name.name.clone(), name.typ.clone());
+                                function.new_stack_var(self, name.name.clone());
                             }
                             _ => panic!("ICE: Unexpected non identifer pattern"),
                         }
@@ -758,7 +678,7 @@ impl<'a> Compiler<'a> {
                                 CJump(function.function.instructions.len() as VmIndex);
                             function.emit(Split);
                             for arg in args.iter() {
-                                function.push_stack_var(self, arg.name.clone(), arg.typ.clone());
+                                function.push_stack_var(self, arg.name.clone());
                             }
                         }
                         Pattern::Record { .. } => {
@@ -768,7 +688,7 @@ impl<'a> Compiler<'a> {
                         Pattern::Ident(ref id) => {
                             function.function.instructions[start_index] =
                                 Jump(function.function.instructions.len() as VmIndex);
-                            function.new_stack_var(self, id.name.clone(), id.typ.clone());
+                            function.new_stack_var(self, id.name.clone());
                         }
                     }
                     self.compile(&alt.expr, function, tail_position)?;
@@ -849,7 +769,7 @@ impl<'a> Compiler<'a> {
                            -> Result<()> {
         match *pattern {
             Pattern::Ident(ref name) => {
-                function.new_stack_var(self, name.name.clone(), pattern_type.clone());
+                function.new_stack_var(self, name.name.clone());
             }
             Pattern::Record { ref types, ref fields, .. } => {
                 let typ = resolve::remove_aliases(self, pattern_type.clone());
@@ -878,33 +798,29 @@ impl<'a> Compiler<'a> {
 
                             // Add a dummy variable for the record itself so the correct number
                             // of slots are removed when exiting
-                            function.new_stack_var(self, self.empty_symbol.clone(), Type::hole());
+                            function.new_stack_var(self, self.empty_symbol.clone());
 
                             let record_index = function.stack_size();
                             for pattern_field in fields {
                                 function.emit(Push(record_index));
                                 function.emit_field(self, &typ, &pattern_field.0)?;
-
-                                let field = typ.row_iter()
-                                    .find(|field| field.name.name_eq(&pattern_field.0))
-                                    .expect("ICE: Record field does not exist");
-                                let field_name = pattern_field.1
-                                    .as_ref()
-                                    .unwrap_or(&pattern_field.0)
-                                    .clone();
-                                function.new_stack_var(self, field_name, field.typ.clone());
+                                function.new_stack_var(self,
+                                                       pattern_field.1
+                                                           .as_ref()
+                                                           .unwrap_or(&pattern_field.0)
+                                                           .clone());
                             }
                         } else {
                             function.emit(Split);
                             for field in typ.row_iter() {
-                                let (name, typ) = match fields.iter()
+                                let name = match fields.iter()
                                     .find(|tup| tup.0.name_eq(&field.name)) {
                                     Some(&(ref name, ref bind)) => {
-                                        (bind.as_ref().unwrap_or(name).clone(), field.typ.clone())
+                                        bind.as_ref().unwrap_or(name).clone()
                                     }
-                                    None => (self.empty_symbol.clone(), Type::hole()),
+                                    None => self.empty_symbol.clone(),
                                 };
-                                function.push_stack_var(self, name, typ);
+                                function.push_stack_var(self, name);
                             }
                         }
                     }
@@ -930,7 +846,7 @@ impl<'a> Compiler<'a> {
 
         function.stack.enter_scope();
         for arg in args {
-            function.push_stack_var(self, arg.name.clone(), arg.typ.clone());
+            function.push_stack_var(self, arg.name.clone());
         }
         self.compile(body, function, true)?;
 
@@ -938,9 +854,8 @@ impl<'a> Compiler<'a> {
 
         // Insert all free variables into the above globals free variables
         // if they arent in that lambdas scope
-        let current_line = self.source.line_number_at_byte(body.span.end);
-        let f = function.end_function(self, current_line);
-        for &(ref var, _) in f.free_vars.iter() {
+        let f = function.end_function(self);
+        for var in f.free_vars.iter() {
             match self.find(var, function).expect("free_vars: find") {
                 Stack(index) => function.emit(Push(index)),
                 UpVar(index) => function.emit(PushUpVar(index)),

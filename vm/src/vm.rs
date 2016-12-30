@@ -40,7 +40,7 @@ fn new_bytecode(gc: &mut Gc,
                            strings,
                            module_globals,
                            records,
-                           debug_info,
+                           source_map,
                            .. } = f;
 
     let fs: StdResult<_, _> = inner_functions.into_iter()
@@ -68,7 +68,7 @@ fn new_bytecode(gc: &mut Gc,
         strings: strings,
         globals: globals,
         records: records?,
-        debug_info: debug_info,
+        source_map: source_map,
     }))
 }
 

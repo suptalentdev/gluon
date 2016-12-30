@@ -213,12 +213,7 @@ impl<E, Extra> Compileable<Extra> for TypecheckValue<E>
             let symbols = SymbolModule::new(String::from(AsRef::<str>::as_ref(&name)),
                                             &mut compiler.symbols);
             let source = Source::new(expr_str);
-            let mut compiler = Compiler::new(&*env,
-                                             thread.global_env(),
-                                             symbols,
-                                             &source,
-                                             filename.to_string(),
-                                             compiler.emit_debug_info);
+            let mut compiler = Compiler::new(&*env, thread.global_env(), symbols, &source);
             compiler.compile_expr(self.expr.borrow())?
         };
         function.id = Symbol::from(filename);
