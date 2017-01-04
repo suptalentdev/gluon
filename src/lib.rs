@@ -18,6 +18,7 @@ pub extern crate gluon_check as check;
 pub mod compiler_pipeline;
 pub mod import;
 pub mod io;
+#[cfg(feature = "regex")]
 pub mod regex_bind;
 
 pub use vm::thread::{RootedThread, Thread};
@@ -120,6 +121,12 @@ pub struct Compiler {
     symbols: Symbols,
     implicit_prelude: bool,
     emit_debug_info: bool,
+}
+
+impl Default for Compiler {
+    fn default() -> Compiler {
+        Compiler::new()
+    }
 }
 
 impl Compiler {
@@ -375,7 +382,7 @@ pub fn new_vm() -> RootedThread {
     use ::import::{DefaultImporter, Import};
 
     let vm = RootedThread::new();
-    let gluon_path = env::var("GLUON_PATH").unwrap_or(String::from("."));
+    let gluon_path = env::var("GLUON_PATH").unwrap_or_else(|_| String::from("."));
     let import = Import::new(DefaultImporter);
     import.add_path(gluon_path);
     vm.get_macros()
@@ -393,9 +400,9 @@ pub fn new_vm() -> RootedThread {
     vm
 }
 
-#[cfg(feature="regex")]
+#[cfg(feature = "regex")]
 fn load_regex(vm: &Thread) {
     ::regex_bind::load(&vm).expect("Loaded regex library");
 }
-#[cfg(not(feature="regex"))]
+#[cfg(not(feature = "regex"))]
 fn load_regex(_: &Thread) {}
