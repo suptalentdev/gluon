@@ -1,9 +1,10 @@
 use base::ast::is_operator_char;
 use base::pos::{self, BytePos, Column, Line, Location, Spanned};
+use std::error::Error as StdError;
 use std::fmt;
 use std::str::Chars;
 
-use self::Error::*;
+use self::ErrorCode::*;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Token<'input> {
@@ -101,11 +102,27 @@ impl<'input> fmt::Display for Token<'input> {
 
 pub type SpannedToken<'input> = Spanned<Token<'input>, Location>;
 
-pub type SpError = Spanned<Error, Location>;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Error {
+    pub location: Location,
+    pub code: ErrorCode,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.description()) // TODO: Improve
+    }
+}
+
+impl StdError for Error {
+    fn description(&self) -> &str {
+        self.code.description()
+    }
+}
 
 quick_error! {
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub enum Error {
+    pub enum ErrorCode {
         EmptyCharLiteral {
             description("empty char literal")
         }
@@ -130,8 +147,11 @@ quick_error! {
     }
 }
 
-fn error<T>(location: Location, code: Error) -> Result<T, SpError> {
-    Err(pos::spanned2(location, location, code))
+fn error<T>(location: Location, code: ErrorCode) -> Result<T, Error> {
+    Err(Error {
+        location: location,
+        code: code,
+    })
 }
 
 fn is_ident_start(ch: char) -> bool {
@@ -224,12 +244,12 @@ impl<'input> Tokenizer<'input> {
         while let Some(_) = self.bump() {}
     }
 
-    fn error<T>(&mut self, location: Location, code: Error) -> Result<T, SpError> {
+    fn error<T>(&mut self, location: Location, code: ErrorCode) -> Result<T, Error> {
         self.skip_to_end();
         error(location, code)
     }
 
-    fn eof_error<T>(&mut self) -> Result<T, SpError> {
+    fn eof_error<T>(&mut self) -> Result<T, Error> {
         let location = self.eof_location;
         self.error(location, UnexpectedEof)
     }
@@ -278,7 +298,7 @@ impl<'input> Tokenizer<'input> {
         }
     }
 
-    fn block_comment(&mut self, start: Location) -> Result<Option<SpannedToken<'input>>, SpError> {
+    fn block_comment(&mut self, start: Location) -> Result<Option<SpannedToken<'input>>, Error> {
         self.bump(); // Skip first '*'
 
         loop {
@@ -322,7 +342,7 @@ impl<'input> Tokenizer<'input> {
         pos::spanned2(start, end, token)
     }
 
-    fn escape_code(&mut self) -> Result<char, SpError> {
+    fn escape_code(&mut self) -> Result<char, Error> {
         match self.bump() {
             Some((_, '\'')) => Ok('\''),
             Some((_, '"')) => Ok('"'),
@@ -333,11 +353,11 @@ impl<'input> Tokenizer<'input> {
             Some((_, 't')) => Ok('\t'),
             // TODO: Unicode escape codes
             Some((start, ch)) => self.error(start, UnexpectedEscapeCode(ch)),
-            None => return self.eof_error(),
+            None => self.eof_error(),
         }
     }
 
-    fn string_literal(&mut self, start: Location) -> Result<SpannedToken<'input>, SpError> {
+    fn string_literal(&mut self, start: Location) -> Result<SpannedToken<'input>, Error> {
         let mut string = String::new();
 
         while let Some((next, ch)) = self.bump() {
@@ -355,7 +375,7 @@ impl<'input> Tokenizer<'input> {
         self.error(start, UnterminatedStringLiteral)
     }
 
-    fn char_literal(&mut self, start: Location) -> Result<SpannedToken<'input>, SpError> {
+    fn char_literal(&mut self, start: Location) -> Result<SpannedToken<'input>, Error> {
         let ch = match self.bump() {
             Some((_, '\\')) => self.escape_code()?,
             Some((_, '\'')) => return self.error(start, EmptyCharLiteral),
@@ -370,7 +390,7 @@ impl<'input> Tokenizer<'input> {
         }
     }
 
-    fn numeric_literal(&mut self, start: Location) -> Result<SpannedToken<'input>, SpError> {
+    fn numeric_literal(&mut self, start: Location) -> Result<SpannedToken<'input>, Error> {
         let (end, int) = self.take_while(start, is_digit);
 
         let (start, end, token) = match self.lookahead {
@@ -421,9 +441,9 @@ impl<'input> Tokenizer<'input> {
 }
 
 impl<'input> Iterator for Tokenizer<'input> {
-    type Item = Result<SpannedToken<'input>, SpError>;
+    type Item = Result<SpannedToken<'input>, Error>;
 
-    fn next(&mut self) -> Option<Result<SpannedToken<'input>, SpError>> {
+    fn next(&mut self) -> Option<Result<SpannedToken<'input>, Error>> {
         while let Some((start, ch)) = self.bump() {
             return match ch {
                 ',' => Some(Ok(pos::spanned2(start, start.shift(ch), Token::Comma))),
@@ -470,7 +490,7 @@ mod test {
     use base::pos::{self, BytePos, Column, Line, Location};
 
     use super::{Tokenizer, error};
-    use super::Error::*;
+    use super::ErrorCode::*;
     use token::Token;
     use token::Token::*;
 
