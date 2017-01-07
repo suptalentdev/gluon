@@ -171,7 +171,3 @@ pub fn array(fields: Vec<SpExpr>) -> SpExpr {
         exprs: fields,
     }))
 }
-
-pub fn error() -> SpExpr {
-    no_loc(Expr::Error)
-}

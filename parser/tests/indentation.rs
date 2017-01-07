@@ -8,7 +8,8 @@ extern crate gluon_parser as parser;
 mod support;
 
 use base::ast::*;
-use parser::{parse_string, ParseErrors};
+use base::pos::{self, BytePos};
+use parser::{Error, parse_string, ParseErrors};
 use support::MockEnv;
 
 fn parse(text: &str) -> Result<SpannedExpr<String>, ParseErrors> {
@@ -47,6 +48,25 @@ g ""
         }
         Err(err) => assert!(false, "{}", err),
     }
+}
+
+#[test]
+fn wrong_indent_expression() {
+    let _ = ::env_logger::init();
+
+    let result = parse(r#"
+let y =
+    let x = 1
+    x
+   2
+y
+"#);
+
+    let error = Error::UnexpectedToken("IntLiteral".into());
+    let span = pos::span(BytePos::from(32), BytePos::from(32));
+    let errors = ParseErrors::from(vec![pos::spanned(span, error)]);
+
+    assert_eq!(result, Err(errors));
 }
 
 #[test]
