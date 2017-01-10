@@ -2,18 +2,13 @@ use std::fmt;
 use std::collections::hash_map::Entry;
 use std::result::Result as StdResult;
 
-use itertools::Itertools;
-
-use pretty::{Arena, DocAllocator, DocBuilder};
-
 use base::symbol::Symbol;
-use base::types::{ArcType, Type, TypeEnv};
 use types::*;
 use base::fnv::FnvMap;
 
 use interner::InternedStr;
-use gc::{Gc, GcPtr, Traverseable, DataDef, Move, WriteOnly};
-use array::{Array, Str};
+use gc::{Gc, GcPtr, Generation, Traverseable, DataDef, Move, WriteOnly};
+use array::Array;
 use source_map::SourceMap;
 use thread::{Thread, Status};
 use {Error, Result};
@@ -22,12 +17,8 @@ use self::Value::{Int, Float, String, Function, PartialApplication, Closure};
 
 mopafy!(Userdata);
 pub trait Userdata: ::mopa::Any + Traverseable + fmt::Debug + Send + Sync {
-    fn deep_clone(&self,
-                  visited: &mut FnvMap<*const (), Value>,
-                  gc: &mut Gc,
-                  thread: &Thread)
-                  -> Result<GcPtr<Box<Userdata>>> {
-        let _ = (visited, gc, thread);
+    fn deep_clone(&self, deep_cloner: &mut Cloner) -> Result<GcPtr<Box<Userdata>>> {
+        let _ = deep_cloner;
         Err(Error::Message("Userdata cannot be cloned".into()))
     }
 }
@@ -175,12 +166,65 @@ impl<'b> Traverseable for Def<'b> {
     }
 }
 
+mod gc_str {
+    use super::ValueArray;
+    use gc::{Gc, GcPtr, Generation, Traverseable};
+
+    use std::str;
+    use std::ops::Deref;
+
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    pub struct GcStr(GcPtr<ValueArray>);
+
+    impl Eq for GcStr {}
+
+    impl GcStr {
+        pub fn from_utf8(array: GcPtr<ValueArray>) -> Result<GcStr, ()> {
+            unsafe {
+                if array.as_slice::<u8>()
+                    .and_then(|bytes| str::from_utf8(bytes).ok())
+                    .is_some() {
+                    Ok(GcStr::from_utf8_unchecked(array))
+                } else {
+                    Err(())
+                }
+            }
+        }
+        pub unsafe fn from_utf8_unchecked(array: GcPtr<ValueArray>) -> GcStr {
+            GcStr(array)
+        }
+
+        pub fn into_inner(self) -> GcPtr<ValueArray> {
+            self.0
+        }
+
+        pub fn generation(&self) -> Generation {
+            self.0.generation()
+        }
+    }
+
+    impl Deref for GcStr {
+        type Target = str;
+
+        fn deref(&self) -> &str {
+            unsafe { str::from_utf8_unchecked(self.0.as_slice::<u8>().unwrap()) }
+        }
+    }
+
+    impl Traverseable for GcStr {
+        fn traverse(&self, gc: &mut Gc) {
+            self.0.traverse(gc)
+        }
+    }
+}
+pub use self::gc_str::GcStr;
+
 #[derive(Copy, Clone, PartialEq)]
 pub enum Value {
     Byte(u8),
     Int(VmInt),
     Float(f64),
-    String(GcPtr<Str>),
+    String(GcStr),
     Tag(VmTag),
     Data(GcPtr<DataStruct>),
     Array(GcPtr<ValueArray>),
@@ -192,7 +236,7 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn generation(self) -> usize {
+    pub fn generation(self) -> Generation {
         match self {
             String(p) => p.generation(),
             Value::Data(p) => p.generation(),
@@ -202,200 +246,7 @@ impl Value {
             PartialApplication(p) => p.generation(),
             Value::Userdata(p) => p.generation(),
             Value::Thread(p) => p.generation(),
-            Value::Tag(_) | Value::Byte(_) | Int(_) | Float(_) => 0,
-        }
-    }
-}
-
-#[derive(PartialEq, Copy, Clone, PartialOrd)]
-enum Prec {
-    Top,
-    Constructor,
-}
-use self::Prec::*;
-
-
-pub struct ValuePrinter<'a> {
-    pub typ: &'a ArcType,
-    pub env: &'a TypeEnv,
-    pub value: Value,
-    pub max_level: i32,
-    pub width: usize,
-}
-
-impl<'t> ValuePrinter<'t> {
-    pub fn new(env: &'t TypeEnv, typ: &'t ArcType, value: Value) -> ValuePrinter<'t> {
-        ValuePrinter {
-            typ: typ,
-            env: env,
-            value: value,
-            max_level: i32::max_value(),
-            width: 80,
-        }
-    }
-
-    pub fn max_level(&mut self, max_level: i32) -> &mut ValuePrinter<'t> {
-        self.max_level = max_level;
-        self
-    }
-
-    pub fn width(&mut self, width: usize) -> &mut ValuePrinter<'t> {
-        self.width = width;
-        self
-    }
-}
-
-struct InternalPrinter<'a, 't> {
-    typ: &'t ArcType,
-    env: &'t TypeEnv,
-    arena: &'a Arena<'a>,
-    prec: Prec,
-    level: i32,
-}
-
-impl<'a> fmt::Display for ValuePrinter<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-
-        let arena = Arena::new();
-        let mut s = Vec::new();
-        InternalPrinter {
-                typ: self.typ,
-                env: self.env,
-                arena: &arena,
-                prec: Top,
-                level: self.max_level,
-            }.pretty(self.value)
-            .group()
-            .1
-            .render(self.width, &mut s)
-            .map_err(|_| fmt::Error)?;
-        write!(f, "{}", ::std::str::from_utf8(&s).expect("utf-8"))
-    }
-}
-
-impl<'a, 't> InternalPrinter<'a, 't> {
-    fn pretty(&self, value: Value) -> DocBuilder<'a, Arena<'a>> {
-        use std::iter;
-
-        let arena = self.arena;
-        match value {
-            _ if self.level == 0 => arena.text(".."),
-            Value::String(s) => arena.text(format!("{:?}", s)),
-            Value::Data(ref data) => self.pretty_data(data.tag, data.fields.iter().cloned()),
-            Value::Tag(tag) => self.pretty_data(tag, iter::empty()),
-            Value::Function(ref function) => {
-                chain![arena;
-                    "<extern ",
-                    function.id.declared_name().to_string(),
-                    ">"
-                ]
-            }
-            Value::Closure(ref closure) => {
-                chain![arena;
-                    "{",
-                    arena.concat(closure.upvars.iter().map(|field| {
-                        arena.text(format!("{:?}", field))
-                    })),
-                    "}"
-                ]
-            }
-            Value::Array(ref array) => {
-                chain![arena;
-                    "[",
-                    arena.concat(array.iter().map(|field| {
-                        match **self.typ {
-                            Type::App(_, ref args) => self.p(&args[0], Top).pretty(field),
-                            _ => arena.text(format!("{:?}", field)),
-                        }
-                    }).intersperse(arena.text(",").append(arena.space()))),
-                    "]"
-                ]
-            }
-            Value::PartialApplication(p) => arena.text(format!("{:?}", p)),
-            Value::Userdata(ref data) => arena.text(format!("{:?}", data)),
-            Value::Thread(thread) => arena.text(format!("{:?}", thread)),
-            Value::Byte(b) => arena.text(format!("{}", b)),
-            Value::Int(i) => arena.text(format!("{}", i)),
-            Value::Float(f) => arena.text(format!("{}", f)),
-        }
-    }
-
-    fn pretty_data<I>(&self, tag: VmTag, fields: I) -> DocBuilder<'a, Arena<'a>>
-        where I: IntoIterator<Item = Value>,
-    {
-        fn enclose<'a>(p: Prec,
-                       limit: Prec,
-                       arena: &'a Arena<'a>,
-                       doc: DocBuilder<'a, Arena<'a>>)
-                       -> DocBuilder<'a, Arena<'a>> {
-            if p >= limit {
-                chain![arena; "(", doc, ")"]
-            } else {
-                doc
-            }
-        }
-        use base::resolve::remove_aliases_cow;
-        use base::types::arg_iter;
-
-        let typ = remove_aliases_cow(self.env, self.typ);
-        let arena = self.arena;
-        match **typ {
-            Type::Record(ref row) => {
-                chain![arena;
-                            "{",
-                            arena.concat(fields.into_iter().zip(row.row_iter())
-                                .map(|(field, type_field)| {
-                                chain![arena;
-                                    arena.space(),
-                                    type_field.name.to_string(),
-                                    ":",
-                                    arena.space(),
-                                    self.p(&type_field.typ, Top).pretty(field)
-                                ]
-                                }).intersperse(arena.text(","))),
-                            arena.space(),
-                            "}"
-                        ]
-            }
-            Type::Variant(ref row) => {
-                let type_field = row.row_iter()
-                    .nth(tag as usize)
-                    .expect("Variant tag is out of bounds");
-                let mut empty = true;
-                let doc = chain![arena;
-                            type_field.name.declared_name().to_string(),
-                            arena.concat(fields.into_iter().zip(arg_iter(&type_field.typ))
-                                .map(|(field, typ)| {
-                                    empty = false;
-                                    arena.space().append(self.p(typ, Constructor).pretty(field))
-                                }))
-                        ];
-                if empty {
-                    doc
-                } else {
-                    enclose(self.prec, Constructor, arena, doc)
-                }
-            }
-            _ => {
-                chain![arena;
-                        "{",
-                        arena.concat(fields.into_iter().map(|field| {
-                            arena.space().append(self.p(&Type::hole(), Top).pretty(field))
-                        }).intersperse(arena.text(","))),
-                        arena.space(),
-                        "}"
-                    ]
-            }
-        }
-    }
-
-    fn p(&self, typ: &'t ArcType, prec: Prec) -> InternalPrinter<'a, 't> {
-        InternalPrinter {
-            typ: typ,
-            env: self.env,
-            arena: self.arena,
-            prec: prec,
-            level: self.level - 1,
+            Value::Tag(_) | Value::Byte(_) | Int(_) | Float(_) => Generation::default(),
         }
     }
 }
@@ -657,7 +508,7 @@ impl_repr! {
     u8, Repr::Byte,
     VmInt, Repr::Int,
     f64, Repr::Float,
-    GcPtr<Str>, Repr::String,
+    GcStr, Repr::String,
     GcPtr<ValueArray>, Repr::Array,
     Value, Repr::Unknown,
     GcPtr<Box<Userdata>>, Repr::Userdata,
@@ -692,7 +543,7 @@ macro_rules! on_array {
                     Repr::Byte => $f(array.unsafe_array::<u8>()),
                     Repr::Int => $f(array.unsafe_array::<VmInt>()),
                     Repr::Float => $f(array.unsafe_array::<f64>()),
-                    Repr::String => $f(array.unsafe_array::<GcPtr<Str>>()),
+                    Repr::String => $f(array.unsafe_array::<GcStr>()),
                     Repr::Array => $f(array.unsafe_array::<GcPtr<ValueArray>>()),
                     Repr::Unknown => $f(array.unsafe_array::<Value>()),
                     Repr::Userdata => $f(array.unsafe_array::<GcPtr<Box<Userdata>>>()),
@@ -758,6 +609,10 @@ impl ValueArray {
                 Repr::Thread => Value::Thread(self.unsafe_get(index)),
             }
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn len(&self) -> usize {
@@ -845,7 +700,9 @@ impl ValueArray {
 
     pub fn as_slice<T: ArrayRepr + Copy>(&self) -> Option<&[T]> {
         unsafe {
-            if T::matches(self.repr) {
+            // If the array is empty then it may not have the correct type representation set since
+            // there was no value to take the correct representation from
+            if T::matches(self.repr) || self.is_empty() {
                 Some(self.unsafe_array::<T>())
             } else {
                 None
@@ -919,275 +776,190 @@ unsafe impl<'b> DataDef for ArrayDef<'b> {
     }
 }
 
-fn deep_clone_ptr<T, A>(value: GcPtr<T>,
-                        visited: &mut FnvMap<*const (), Value>,
-                        alloc: A)
-                        -> Result<StdResult<Value, GcPtr<T>>>
-    where A: FnOnce(&T) -> Result<(Value, GcPtr<T>)>,
-{
-    let key = &*value as *const T as *const ();
-    let new_ptr = match visited.entry(key) {
-        Entry::Occupied(entry) => return Ok(Ok(*entry.get())),
-        Entry::Vacant(entry) => {
-            // FIXME Should allocate the real `Value` and possibly fill it later
-            let (value, new_ptr) = alloc(&value)?;
-            entry.insert(value);
-            new_ptr
-        }
-    };
-    Ok(Err(new_ptr))
+pub struct Cloner<'t> {
+    visited: FnvMap<*const (), Value>,
+    thread: &'t Thread,
+    gc: &'t mut Gc,
+    receiver_generation: Generation,
 }
 
-fn deep_clone_str(data: GcPtr<Str>,
-                  visited: &mut FnvMap<*const (), Value>,
-                  gc: &mut Gc)
-                  -> Result<Value> {
-    Ok(deep_clone_ptr(data, visited, |data| {
-            let ptr = gc.alloc(&data[..])?;
-            Ok((String(ptr), ptr))
-        })
-        ?
-        .unwrap_or_else(String))
-}
-fn deep_clone_data(data: GcPtr<DataStruct>,
-                   visited: &mut FnvMap<*const (), Value>,
-                   gc: &mut Gc,
-                   thread: &Thread)
-                   -> Result<GcPtr<DataStruct>> {
-    let result = deep_clone_ptr(data, visited, |data| {
-        let ptr = gc.alloc(Def {
-                tag: data.tag,
-                elems: &data.fields,
+impl<'t> Cloner<'t> {
+    pub fn new(thread: &'t Thread, gc: &'t mut Gc) -> Cloner<'t> {
+        Cloner {
+            visited: FnvMap::default(),
+            thread: thread,
+            receiver_generation: gc.generation(),
+            gc: gc,
+        }
+    }
+
+    pub fn thread(&self) -> &'t Thread {
+        self.thread
+    }
+
+    pub fn gc(&mut self) -> &mut Gc {
+        self.gc
+    }
+
+    /// Deep clones the entire value doing no sharing
+    pub fn force_full_clone(&mut self) -> &mut Self {
+        self.receiver_generation = Generation::disjoint();
+        self
+    }
+
+    pub fn deep_clone(&mut self, value: Value) -> Result<Value> {
+        // Only need to clone values which belong to a younger generation than the gc that the new
+        // value will live in
+        if self.receiver_generation.can_contain_values_from(value.generation()) {
+            return Ok(value);
+        }
+        match value {
+            String(data) => self.deep_clone_str(data),
+            Value::Data(data) => self.deep_clone_data(data).map(Value::Data),
+            Value::Array(data) => self.deep_clone_array(data).map(Value::Array),
+            Closure(data) => self.deep_clone_closure(data).map(Value::Closure),
+            PartialApplication(data) => self.deep_clone_app(data).map(Value::PartialApplication),
+            Function(f) => self.gc.alloc(Move(ExternFunction::clone(&f))).map(Value::Function),
+            Value::Tag(i) => Ok(Value::Tag(i)),
+            Value::Byte(i) => Ok(Value::Byte(i)),
+            Int(i) => Ok(Int(i)),
+            Float(f) => Ok(Float(f)),
+            Value::Userdata(userdata) => userdata.deep_clone(self).map(Value::Userdata),
+            Value::Thread(_) => Err(Error::Message("Threads cannot be deep cloned yet".into())),
+        }
+    }
+
+    fn deep_clone_ptr<T, A, R>(&mut self, value: GcPtr<T>, alloc: A) -> Result<StdResult<Value, R>>
+        where A: FnOnce(&mut Gc, &T) -> Result<(Value, R)>,
+    {
+        let key = &*value as *const T as *const ();
+        let new_ptr = match self.visited.entry(key) {
+            Entry::Occupied(entry) => return Ok(Ok(*entry.get())),
+            Entry::Vacant(entry) => {
+                // FIXME Should allocate the real `Value` and possibly fill it later
+                let (value, new_ptr) = alloc(self.gc, &value)?;
+                entry.insert(value);
+                new_ptr
+            }
+        };
+        Ok(Err(new_ptr))
+    }
+
+    fn deep_clone_str(&mut self, data: GcStr) -> Result<Value> {
+        unsafe {
+            Ok(self.deep_clone_ptr(data.into_inner(), |gc, data| {
+                    let ptr = GcStr::from_utf8_unchecked(gc.alloc(data)?);
+                    Ok((String(ptr), ptr))
+                })?
+                .unwrap_or_else(String))
+        }
+    }
+    fn deep_clone_data(&mut self, data: GcPtr<DataStruct>) -> Result<GcPtr<DataStruct>> {
+        let result = self.deep_clone_ptr(data, |gc, data| {
+                let ptr = gc.alloc(Def {
+                        tag: data.tag,
+                        elems: &data.fields,
+                    })?;
+                Ok((Value::Data(ptr), ptr))
             })?;
-        Ok((Value::Data(ptr), ptr))
-    })?;
-    match result {
-        Ok(Value::Data(ptr)) => Ok(ptr),
-        Ok(_) => unreachable!(),
-        Err(mut new_data) => {
-            {
-                let new_fields = unsafe { &mut new_data.as_mut().fields };
-                for (new, old) in new_fields.iter_mut().zip(&data.fields) {
-                    *new = deep_clone(*old, visited, gc, thread)?;
-                }
-            }
-            Ok(new_data)
-        }
-    }
-}
-
-fn deep_clone_userdata(ptr: GcPtr<Box<Userdata>>,
-                       visited: &mut FnvMap<*const (), Value>,
-                       gc: &mut Gc,
-                       thread: &Thread)
-                       -> Result<GcPtr<Box<Userdata>>> {
-    ptr.deep_clone(visited, gc, thread)
-}
-
-fn deep_clone_array(array: GcPtr<ValueArray>,
-                    visited: &mut FnvMap<*const (), Value>,
-                    gc: &mut Gc,
-                    thread: &Thread)
-                    -> Result<GcPtr<ValueArray>> {
-    type CloneFn<T> = fn(T, &mut FnvMap<*const (), Value>, &mut Gc, &Thread) -> Result<T>;
-    unsafe fn deep_clone_elems<T: Copy>(deep_clone: CloneFn<T>,
-                                        mut new_array: GcPtr<ValueArray>,
-                                        visited: &mut FnvMap<*const (), Value>,
-                                        gc: &mut Gc,
-                                        thread: &Thread)
-                                        -> Result<()> {
-        let new_array = new_array.as_mut().unsafe_array_mut::<T>();
-        for field in new_array.iter_mut() {
-            *field = deep_clone(*field, visited, gc, thread)?;
-        }
-        Ok(())
-    }
-
-    let result = deep_clone_ptr(array, visited, |array| {
-        let ptr = gc.alloc(array)?;
-        Ok((Value::Array(ptr), ptr))
-    })?;
-    match result {
-        Ok(Value::Array(ptr)) => Ok(ptr),
-        Ok(_) => unreachable!(),
-        Err(new_array) => {
-            unsafe {
-                match new_array.repr() {
-                    Repr::Byte | Repr::Int | Repr::Float | Repr::String => Ok(()),
-                    Repr::Array => {
-                        deep_clone_elems(deep_clone_array, new_array, visited, gc, thread)
+        match result {
+            Ok(Value::Data(ptr)) => Ok(ptr),
+            Ok(_) => unreachable!(),
+            Err(mut new_data) => {
+                {
+                    let new_fields = unsafe { &mut new_data.as_mut().fields };
+                    for (new, old) in new_fields.iter_mut().zip(&data.fields) {
+                        *new = self.deep_clone(*old)?;
                     }
-                    Repr::Unknown => deep_clone_elems(deep_clone, new_array, visited, gc, thread),
-                    Repr::Userdata => {
-                        deep_clone_elems(deep_clone_userdata, new_array, visited, gc, thread)
-                    }
-                    Repr::Thread => {
-                        return Err(Error::Message("Threads cannot be deep cloned yet".into()))
-                    }
-                }?;
-            }
-            Ok(new_array)
-        }
-    }
-}
-
-fn deep_clone_closure(data: GcPtr<ClosureData>,
-                      visited: &mut FnvMap<*const (), Value>,
-                      gc: &mut Gc,
-                      thread: &Thread)
-                      -> Result<GcPtr<ClosureData>> {
-    let result = deep_clone_ptr(data, visited, |data| {
-        let ptr = gc.alloc(ClosureDataDef(data.function, &data.upvars))?;
-        Ok((Closure(ptr), ptr))
-    })?;
-    match result {
-        Ok(Value::Closure(ptr)) => Ok(ptr),
-        Ok(_) => unreachable!(),
-        Err(mut new_data) => {
-            {
-                let new_upvars = unsafe { &mut new_data.as_mut().upvars };
-                for (new, old) in new_upvars.iter_mut().zip(&data.upvars) {
-                    *new = deep_clone(*old, visited, gc, thread)?;
                 }
+                Ok(new_data)
             }
-            Ok(new_data)
         }
     }
-}
-fn deep_clone_app(data: GcPtr<PartialApplicationData>,
-                  visited: &mut FnvMap<*const (), Value>,
-                  gc: &mut Gc,
-                  thread: &Thread)
-                  -> Result<GcPtr<PartialApplicationData>> {
-    let result = deep_clone_ptr(data, visited, |data| {
-        let ptr = gc.alloc(PartialApplicationDataDef(data.function, &data.args))?;
-        Ok((PartialApplication(ptr), ptr))
-    })?;
-    match result {
-        Ok(Value::PartialApplication(ptr)) => Ok(ptr),
-        Ok(_) => unreachable!(),
-        Err(mut new_data) => {
-            {
-                let new_args = unsafe { &mut new_data.as_mut().args };
-                for (new, old) in new_args.iter_mut()
-                    .zip(&data.args) {
-                    *new = deep_clone(*old, visited, gc, thread)?;
+
+    fn deep_clone_userdata(&mut self, ptr: GcPtr<Box<Userdata>>) -> Result<GcPtr<Box<Userdata>>> {
+        ptr.deep_clone(self)
+    }
+
+    fn deep_clone_array(&mut self, array: GcPtr<ValueArray>) -> Result<GcPtr<ValueArray>> {
+        unsafe fn deep_clone_elems<T, F>(mut new_array: GcPtr<ValueArray>,
+                                         mut deep_clone: F)
+                                         -> Result<()>
+            where T: Copy,
+                  F: FnMut(T) -> Result<T>,
+        {
+            let new_array = new_array.as_mut().unsafe_array_mut::<T>();
+            for field in new_array.iter_mut() {
+                *field = deep_clone(*field)?;
+            }
+            Ok(())
+        }
+
+        let result = self.deep_clone_ptr(array, |gc, array| {
+                let ptr = gc.alloc(array)?;
+                Ok((Value::Array(ptr), ptr))
+            })?;
+        match result {
+            Ok(Value::Array(ptr)) => Ok(ptr),
+            Ok(_) => unreachable!(),
+            Err(new_array) => {
+                unsafe {
+                    match new_array.repr() {
+                        Repr::Byte | Repr::Int | Repr::Float | Repr::String => Ok(()),
+                        Repr::Array => deep_clone_elems(new_array, |e| self.deep_clone_array(e)),
+                        Repr::Unknown => deep_clone_elems(new_array, |e| self.deep_clone(e)),
+                        Repr::Userdata => {
+                            deep_clone_elems(new_array, |e| self.deep_clone_userdata(e))
+                        }
+                        Repr::Thread => {
+                            return Err(Error::Message("Threads cannot be deep cloned yet".into()))
+                        }
+                    }?;
                 }
+                Ok(new_array)
             }
-            Ok(new_data)
-        }
-    }
-}
-pub fn deep_clone(value: Value,
-                  visited: &mut FnvMap<*const (), Value>,
-                  gc: &mut Gc,
-                  thread: &Thread)
-                  -> Result<Value> {
-    // Only need to clone values which belong to a younger generation than the gc that the new
-    // value will live in
-    if value.generation() <= gc.generation() {
-        return Ok(value);
-    }
-    match value {
-        String(data) => deep_clone_str(data, visited, gc),
-        Value::Data(data) => deep_clone_data(data, visited, gc, thread).map(Value::Data),
-        Value::Array(data) => deep_clone_array(data, visited, gc, thread).map(Value::Array),
-        Closure(data) => deep_clone_closure(data, visited, gc, thread).map(Value::Closure),
-        PartialApplication(data) => {
-            deep_clone_app(data, visited, gc, thread).map(Value::PartialApplication)
-        }
-        Function(f) => gc.alloc(Move(ExternFunction::clone(&f))).map(Value::Function),
-        Value::Tag(i) => Ok(Value::Tag(i)),
-        Value::Byte(i) => Ok(Value::Byte(i)),
-        Int(i) => Ok(Int(i)),
-        Float(f) => Ok(Float(f)),
-        Value::Userdata(userdata) => userdata.deep_clone(visited, gc, thread).map(Value::Userdata),
-        Value::Thread(_) => Err(Error::Message("Threads cannot be deep cloned yet".into())),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use gc::Gc;
-    use types::VmInt;
-
-    use base::kind::{ArcKind, KindEnv};
-    use base::types::{Alias, AliasData, ArcType, Field, Type, TypeEnv};
-    use base::symbol::{Symbol, SymbolRef};
-
-    struct MockEnv(Option<Alias<Symbol, ArcType>>);
-
-    impl KindEnv for MockEnv {
-        fn find_kind(&self, _type_name: &SymbolRef) -> Option<ArcKind> {
-            None
         }
     }
 
-    impl TypeEnv for MockEnv {
-        fn find_type(&self, _id: &SymbolRef) -> Option<&ArcType> {
-            None
-        }
-
-        fn find_type_info(&self, _id: &SymbolRef) -> Option<&Alias<Symbol, ArcType>> {
-            self.0.as_ref()
-        }
-
-        fn find_record(&self, _fields: &[Symbol]) -> Option<(&ArcType, &ArcType)> {
-            None
+    fn deep_clone_closure(&mut self, data: GcPtr<ClosureData>) -> Result<GcPtr<ClosureData>> {
+        let result = self.deep_clone_ptr(data, |gc, data| {
+                let ptr = gc.alloc(ClosureDataDef(data.function, &data.upvars))?;
+                Ok((Closure(ptr), ptr))
+            })?;
+        match result {
+            Ok(Value::Closure(ptr)) => Ok(ptr),
+            Ok(_) => unreachable!(),
+            Err(mut new_data) => {
+                {
+                    let new_upvars = unsafe { &mut new_data.as_mut().upvars };
+                    for (new, old) in new_upvars.iter_mut().zip(&data.upvars) {
+                        *new = self.deep_clone(*old)?;
+                    }
+                }
+                Ok(new_data)
+            }
         }
     }
-
-    #[test]
-    fn pretty_variant() {
-        let mut gc = Gc::new(0, usize::max_value());
-
-        let list = Symbol::from("List");
-        let typ: ArcType = Type::variant(vec![Field {
-                                                  name: Symbol::from("Cons"),
-                                                  typ: Type::function(vec![Type::int(),
-                                                                  Type::ident(list.clone())],
-                                                                      Type::ident(list.clone())),
-                                              },
-                                              Field {
-                                                  name: Symbol::from("Nil"),
-                                                  typ: Type::ident(list.clone()),
-                                              }]);
-
-        let env = MockEnv(Some(Alias::from(AliasData {
-            name: list.clone(),
-            args: vec![],
-            typ: typ.clone(),
-        })));
-
-        let nil = Value::Tag(1);
-        assert_eq!(format!("{}", ValuePrinter::new(&env, &typ, nil)), "Nil");
-        let list1 = Value::Data(gc.alloc(Def {
-                tag: 0,
-                elems: &[Value::Int(123), nil],
-            })
-            .unwrap());
-        assert_eq!(format!("{}", ValuePrinter::new(&env, &typ, list1)),
-                   "Cons 123 Nil");
-        let list2 = Value::Data(gc.alloc(Def {
-                tag: 0,
-                elems: &[Value::Int(0), list1],
-            })
-            .unwrap());
-        assert_eq!(format!("{}", ValuePrinter::new(&env, &typ, list2)),
-                   "Cons 0 (Cons 123 Nil)");
-    }
-
-    #[test]
-    fn pretty_array() {
-        let mut gc = Gc::new(0, usize::max_value());
-
-        let typ = Type::array(Type::int());
-
-        let env = MockEnv(None);
-
-        let nil = Value::Array(gc.alloc(&[1 as VmInt, 2, 3][..]).unwrap());
-        assert_eq!(format!("{}", ValuePrinter::new(&env, &typ, nil)),
-                   "[1, 2, 3]");
+    fn deep_clone_app(&mut self,
+                      data: GcPtr<PartialApplicationData>)
+                      -> Result<GcPtr<PartialApplicationData>> {
+        let result = self.deep_clone_ptr(data, |gc, data| {
+                let ptr = gc.alloc(PartialApplicationDataDef(data.function, &data.args))?;
+                Ok((PartialApplication(ptr), ptr))
+            })?;
+        match result {
+            Ok(Value::PartialApplication(ptr)) => Ok(ptr),
+            Ok(_) => unreachable!(),
+            Err(mut new_data) => {
+                {
+                    let new_args = unsafe { &mut new_data.as_mut().args };
+                    for (new, old) in new_args.iter_mut()
+                        .zip(&data.args) {
+                        *new = self.deep_clone(*old)?;
+                    }
+                }
+                Ok(new_data)
+            }
+        }
     }
 }
