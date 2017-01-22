@@ -151,6 +151,7 @@ impl Instruction {
 #[derive(Debug)]
 pub struct TypeInfos {
     pub id_to_type: FnvMap<String, Alias<Symbol, ArcType>>,
+    pub type_to_id: FnvMap<ArcType, ArcType>,
 }
 
 impl KindEnv for TypeInfos {
@@ -171,7 +172,7 @@ impl TypeEnv for TypeInfos {
         self.id_to_type
             .iter()
             .filter_map(|(_, ref alias)| {
-                match **alias.unresolved_type() {
+                match *alias.typ {
                     Type::Variant(ref row) => {
                         row.row_iter().find(|field| field.name.as_ref() == id)
                     }
@@ -188,18 +189,37 @@ impl TypeEnv for TypeInfos {
             .get(id)
     }
 
-    fn find_record(&self, fields: &[Symbol]) -> Option<(ArcType, ArcType)> {
-        None
+    fn find_record(&self, fields: &[Symbol]) -> Option<(&ArcType, &ArcType)> {
+        self.id_to_type
+            .iter()
+            .find(|&(_, alias)| {
+                match *alias.typ {
+                    Type::Record(_) => {
+                        fields.iter().all(|name| {
+                            alias.typ.row_iter().any(|f| f.name.as_ref() == name.as_ref())
+                        })
+                    }
+                    _ => false,
+                }
+            })
+            .and_then(|t| {
+                let typ = &t.1.typ;
+                self.type_to_id.get(typ).map(|id_type| (id_type, typ))
+            })
     }
 }
 
 impl TypeInfos {
     pub fn new() -> TypeInfos {
-        TypeInfos { id_to_type: FnvMap::default() }
+        TypeInfos {
+            id_to_type: FnvMap::default(),
+            type_to_id: FnvMap::default(),
+        }
     }
 
     pub fn extend(&mut self, other: TypeInfos) {
-        let TypeInfos { id_to_type } = other;
+        let TypeInfos { id_to_type, type_to_id } = other;
         self.id_to_type.extend(id_to_type);
+        self.type_to_id.extend(type_to_id);
     }
 }

@@ -264,7 +264,7 @@ impl CompilerEnv for TypeInfos {
         self.id_to_type
             .iter()
             .filter_map(|(_, ref alias)| {
-                match **alias.unresolved_type() {
+                match *alias.typ {
                     Type::Variant(ref row) => {
                         row.row_iter()
                             .enumerate()
@@ -305,7 +305,7 @@ impl<'a> TypeEnv for Compiler<'a> {
             .get(id)
     }
 
-    fn find_record(&self, _fields: &[Symbol]) -> Option<(ArcType, ArcType)> {
+    fn find_record(&self, _fields: &[Symbol]) -> Option<(&ArcType, &ArcType)> {
         None
     }
 }
@@ -753,13 +753,8 @@ impl<'a> Compiler<'a> {
             }
             Expr::TypeBindings(ref type_bindings, ref expr) => {
                 for bind in type_bindings {
-                    let alias = bind.finalized_alias
-                        .as_ref()
-                        .expect("ICE: Expected finalized alias");
-
-                    self.stack_types.insert(bind.alias.name.clone(), alias.clone());
-                    self.stack_constructors
-                        .insert(bind.name.clone(), alias.typ().into_owned());
+                    self.stack_types.insert(bind.alias.name.clone(), bind.alias.clone());
+                    self.stack_constructors.insert(bind.name.clone(), bind.alias.typ.clone());
                 }
                 return Ok(Some(expr));
             }
@@ -816,9 +811,8 @@ impl<'a> Compiler<'a> {
                     // name are imported. Without this aliases may not be traversed properly
                     self.stack_types.insert(alias.name.clone(), alias.clone());
                     self.stack_types.insert(name.clone(), alias.clone());
-                    let aliased_type = alias.typ().into_owned();
-                    self.stack_constructors.insert(alias.name.clone(), aliased_type.clone());
-                    self.stack_constructors.insert(name.clone(), aliased_type);
+                    self.stack_constructors.insert(alias.name.clone(), alias.typ.clone());
+                    self.stack_constructors.insert(name.clone(), alias.typ.clone());
                 });
                 match *typ {
                     Type::Record(_) => {

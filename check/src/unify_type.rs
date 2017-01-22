@@ -280,9 +280,8 @@ fn do_zip_match<'a, U>(unifier: &mut UnifierState<'a, U>,
                 (_, _) => {
                     let lhs = lhs.as_ref().unwrap_or(expected);
                     let rhs = rhs.as_ref().unwrap_or(actual);
-                    // FIXME Maybe always return `None` here since the types before we removed the
-                    // aliases are probably more specific.
-                    Ok(unifier.try_match(lhs, rhs))
+                    unifier.try_match(lhs, rhs);
+                    Ok(None)
                 }
             }
         }

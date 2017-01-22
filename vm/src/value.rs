@@ -933,7 +933,7 @@ unsafe impl<'a> DataDef for &'a ValueArray {
             let result = &mut *result.as_mut_ptr();
             result.repr = self.repr;
             on_array!(self,
-                      |array: &Array<_>| { result.unsafe_array_mut().initialize(array.iter().cloned()) });
+                      |array: &Array<_>| result.unsafe_array_mut().initialize(array.iter().cloned()));
             result
         }
     }
@@ -1165,11 +1165,11 @@ impl<'t> Cloner<'t> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gc::{Gc, Generation};
+    use gc::Gc;
     use types::VmInt;
 
     use base::kind::{ArcKind, KindEnv};
-    use base::types::{Alias, ArcType, Field, Type, TypeEnv};
+    use base::types::{Alias, AliasData, ArcType, Field, Type, TypeEnv};
     use base::symbol::{Symbol, SymbolRef};
 
     struct MockEnv(Option<Alias<Symbol, ArcType>>);
@@ -1189,14 +1189,14 @@ mod tests {
             self.0.as_ref()
         }
 
-        fn find_record(&self, _fields: &[Symbol]) -> Option<(ArcType, ArcType)> {
+        fn find_record(&self, _fields: &[Symbol]) -> Option<(&ArcType, &ArcType)> {
             None
         }
     }
 
     #[test]
     fn pretty_variant() {
-        let mut gc = Gc::new(Generation::default(), usize::max_value());
+        let mut gc = Gc::new(0, usize::max_value());
 
         let list = Symbol::from("List");
         let typ: ArcType = Type::variant(vec![Field {
@@ -1210,7 +1210,11 @@ mod tests {
                                                   typ: Type::ident(list.clone()),
                                               }]);
 
-        let env = MockEnv(Some(Alias::new(list.clone(), vec![], typ.clone())));
+        let env = MockEnv(Some(Alias::from(AliasData {
+            name: list.clone(),
+            args: vec![],
+            typ: typ.clone(),
+        })));
 
         let nil = Value::Tag(1);
         assert_eq!(format!("{}", ValuePrinter::new(&env, &typ, nil)), "Nil");
@@ -1232,7 +1236,7 @@ mod tests {
 
     #[test]
     fn pretty_array() {
-        let mut gc = Gc::new(Generation::default(), usize::max_value());
+        let mut gc = Gc::new(0, usize::max_value());
 
         let typ = Type::array(Type::int());
 

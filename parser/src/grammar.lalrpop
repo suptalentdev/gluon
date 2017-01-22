@@ -1,7 +1,7 @@
 use base::ast::{Alternative, Array, Expr, Lambda, Literal, Pattern, SpannedExpr, TypeBinding, TypedIdent, ValueBinding};
 use base::kind::{ArcKind, Kind};
 use base::pos::{self, BytePos, Spanned};
-use base::types::{AliasData, ArcType, BuiltinType, Field, Generic, Type};
+use base::types::{Alias, ArcType, BuiltinType, Field, Generic, Type};
 use std::str::FromStr;
 
 use token::Token;
@@ -143,8 +143,7 @@ TypeBinding: TypeBinding<Id> = {
         TypeBinding {
             comment: None,
             name: id.clone(),
-            alias: AliasData::new(id, params, Type::variant(row)),
-            finalized_alias: None,
+            alias: Alias::new(id, params, Type::variant(row)),
         }
     },
 
@@ -152,8 +151,7 @@ TypeBinding: TypeBinding<Id> = {
         TypeBinding {
             comment: None,
             name: id.clone(),
-            alias: AliasData::new(id, params, body),
-            finalized_alias: None,
+            alias: Alias::new(id, params, body),
         }
     },
 };
