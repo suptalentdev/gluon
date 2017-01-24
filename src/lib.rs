@@ -18,7 +18,6 @@ pub extern crate gluon_check as check;
 pub mod compiler_pipeline;
 pub mod import;
 pub mod io;
-#[cfg(feature = "regex")]
 pub mod regex_bind;
 
 pub use vm::thread::{RootedThread, Thread};
@@ -120,12 +119,7 @@ pub type Result<T> = StdResult<T, Error>;
 pub struct Compiler {
     symbols: Symbols,
     implicit_prelude: bool,
-}
-
-impl Default for Compiler {
-    fn default() -> Compiler {
-        Compiler::new()
-    }
+    emit_debug_info: bool,
 }
 
 impl Compiler {
@@ -134,13 +128,21 @@ impl Compiler {
         Compiler {
             symbols: Symbols::new(),
             implicit_prelude: true,
+            emit_debug_info: true,
         }
     }
 
-    /// Sets wheter the implicit prelude should be include when compiling a file using this
+    /// Sets whether the implicit prelude should be include when compiling a file using this
     /// compiler (default: true)
     pub fn implicit_prelude(mut self, implicit_prelude: bool) -> Compiler {
         self.implicit_prelude = implicit_prelude;
+        self
+    }
+
+    /// Sets whether the compiler should emit debug information such as source maps and variable names.
+    /// (default: true)
+    pub fn emit_debug_info(mut self, emit_debug_info: bool) -> Compiler {
+        self.emit_debug_info = emit_debug_info;
         self
     }
 
@@ -160,7 +162,7 @@ impl Compiler {
          expr_str: &str)
          -> StdResult<SpannedExpr<Symbol>, (Option<SpannedExpr<Symbol>>, InFile<parser::Error>)> {
         Ok(parser::parse_partial_expr(&mut SymbolModule::new(file.into(), &mut self.symbols),
-                                   expr_str)
+                                      expr_str)
             .map_err(|(expr, err)| (expr, InFile::new(file, expr_str, err)))?)
     }
 
@@ -373,7 +375,7 @@ pub fn new_vm() -> RootedThread {
     use ::import::{DefaultImporter, Import};
 
     let vm = RootedThread::new();
-    let gluon_path = env::var("GLUON_PATH").unwrap_or_else(|_| String::from("."));
+    let gluon_path = env::var("GLUON_PATH").unwrap_or(String::from("."));
     let import = Import::new(DefaultImporter);
     import.add_path(gluon_path);
     vm.get_macros()
@@ -391,9 +393,9 @@ pub fn new_vm() -> RootedThread {
     vm
 }
 
-#[cfg(feature = "regex")]
+#[cfg(feature="regex")]
 fn load_regex(vm: &Thread) {
     ::regex_bind::load(&vm).expect("Loaded regex library");
 }
-#[cfg(not(feature = "regex"))]
+#[cfg(not(feature="regex"))]
 fn load_regex(_: &Thread) {}
