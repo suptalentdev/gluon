@@ -67,9 +67,7 @@ impl CompiledFunction {
 }
 
 struct FunctionEnv {
-    /// The variables currently in scope in the this function.
-    stack: ScopedMap<Symbol, VmIndex>,
-    /// The current size of the stack. Not the same as `stack.len()`.
+    stack: Vec<(VmIndex, Symbol)>,
     stack_size: VmIndex,
     free_vars: Vec<Symbol>,
     current_line: Line,
@@ -119,7 +117,7 @@ impl FunctionEnv {
     fn new(args: VmIndex, id: Symbol, typ: ArcType) -> FunctionEnv {
         FunctionEnv {
             free_vars: Vec::new(),
-            stack: ScopedMap::new(),
+            stack: Vec::new(),
             stack_size: 0,
             function: CompiledFunction::new(args, id, typ),
             current_line: Line::from(0),
@@ -213,23 +211,40 @@ impl FunctionEnv {
         (self.stack_size - 1) as VmIndex
     }
 
-    fn push_stack_var(&mut self, compiler: &Compiler, s: Symbol) {
+    fn push_stack_var(&mut self, s: Symbol) {
         self.increase_stack(1);
-        self.new_stack_var(compiler, s)
+        self.new_stack_var(s)
     }
 
-    fn new_stack_var(&mut self, _compiler: &Compiler, s: Symbol) {
+    fn new_stack_var(&mut self, s: Symbol) {
         debug!("Push var: {:?} at {}", s, self.stack_size - 1);
-        self.stack.insert(s, self.stack_size - 1);
+        self.stack.push((self.stack_size - 1, s));
     }
 
-    fn exit_scope(&mut self, compiler: &Compiler) -> VmIndex {
-        let mut count = 0;
-        for x in self.stack.exit_scope() {
-            count += 1;
-            debug!("Pop var: {:?}", x);
+    fn pop_var(&mut self) {
+        let x = self.stack.pop();
+        debug!("Pop var: {:?}", x);
+    }
+
+    fn pop_pattern(&mut self, pattern: &Pattern<Symbol>) -> VmIndex {
+        match *pattern {
+            Pattern::Constructor(_, ref args) => {
+                for _ in 0..args.len() {
+                    self.pop_var();
+                }
+                args.len() as VmIndex
+            }
+            Pattern::Record { ref fields, .. } => {
+                for _ in fields {
+                    self.pop_var();
+                }
+                fields.len() as VmIndex
+            }
+            Pattern::Ident(_) => {
+                self.pop_var();
+                1
+            }
         }
-        count
     }
 }
 
@@ -272,7 +287,6 @@ pub struct Compiler<'a> {
     stack_constructors: ScopedMap<Symbol, ArcType>,
     stack_types: ScopedMap<Symbol, Alias<Symbol, ArcType>>,
     source: &'a Source<'a>,
-    empty_symbol: Symbol,
 }
 
 impl<'a> KindEnv for Compiler<'a> {
@@ -305,13 +319,12 @@ impl<'a, T: CompilerEnv> CompilerEnv for &'a T {
 impl<'a> Compiler<'a> {
     pub fn new(globals: &'a (CompilerEnv + 'a),
                vm: &'a GlobalVmState,
-               mut symbols: SymbolModule<'a>,
+               symbols: SymbolModule<'a>,
                source: &'a Source<'a>)
                -> Compiler<'a> {
         Compiler {
             globals: globals,
             vm: vm,
-            empty_symbol: symbols.symbol(""),
             symbols: symbols,
             stack_constructors: ScopedMap::new(),
             stack_types: ScopedMap::new(),
@@ -326,13 +339,15 @@ impl<'a> Compiler<'a> {
     fn find(&self, id: &Symbol, current: &mut FunctionEnvs) -> Option<Variable<VmIndex>> {
         let variable = self.stack_constructors
             .iter()
-            .filter_map(|(_, typ)| match **typ {
-                Type::Variant(ref row) => {
-                    row.row_iter()
-                        .enumerate()
-                        .find(|&(_, field)| field.name == *id)
+            .filter_map(|(_, typ)| {
+                match **typ {
+                    Type::Variant(ref row) => {
+                        row.row_iter()
+                            .enumerate()
+                            .find(|&(_, field)| field.name == *id)
+                    }
+                    _ => None,
                 }
-                _ => None,
             })
             .next()
             .map(|(tag, field)| {
@@ -341,8 +356,11 @@ impl<'a> Compiler<'a> {
             })
             .or_else(|| {
                 current.stack
-                    .get(id)
-                    .map(|&index| Stack(index))
+                    .iter()
+                    .rev()
+                    .cloned()
+                    .find(|&(_, ref var)| var == id)
+                    .map(|(index, _)| Stack(index))
                     .or_else(|| {
                         let i = current.envs.len() - 1;
                         let (rest, current) = current.envs.split_at_mut(i);
@@ -350,27 +368,32 @@ impl<'a> Compiler<'a> {
                             .rev()
                             .filter_map(|env| {
                                 env.stack
-                                    .get(id)
+                                    .iter()
+                                    .rev()
+                                    .cloned()
+                                    .find(|&(_, ref var)| var == id)
                                     .map(|_| UpVar(current[0].upvar(id)))
                             })
                             .next()
                     })
             })
             .or_else(|| self.globals.find_var(&id));
-        variable.map(|variable| match variable {
-            Stack(i) => Stack(i),
-            Global(s) => {
-                let existing = current.function
-                    .module_globals
-                    .iter()
-                    .position(|existing| existing == &s);
-                Global(existing.unwrap_or_else(|| {
-                    current.function.module_globals.push(s);
-                    current.function.module_globals.len() - 1
-                }) as VmIndex)
+        variable.map(|variable| {
+            match variable {
+                Stack(i) => Stack(i),
+                Global(s) => {
+                    let existing = current.function
+                        .module_globals
+                        .iter()
+                        .position(|existing| existing == &s);
+                    Global(existing.unwrap_or_else(|| {
+                        current.function.module_globals.push(s);
+                        current.function.module_globals.len() - 1
+                    }) as VmIndex)
+                }
+                Constructor(tag, args) => Constructor(tag, args),
+                UpVar(i) => UpVar(i),
             }
-            Constructor(tag, args) => Constructor(tag, args),
-            UpVar(i) => UpVar(i),
         })
     }
 
@@ -408,7 +431,7 @@ impl<'a> Compiler<'a> {
     /// interpreter
     pub fn compile_expr(&mut self, expr: &CExpr) -> Result<CompiledFunction> {
         let mut env = FunctionEnvs::new();
-        let id = self.empty_symbol.clone();
+        let id = self.symbols.symbol("");
         let typ = Type::function(vec![],
                                  ArcType::from(expr.env_type_of(&self.globals).clone()));
         env.start_function(self, 0, id, typ);
@@ -444,17 +467,27 @@ impl<'a> Compiler<'a> {
                -> Result<()> {
         // Store a stack of expressions which need to be cleaned up after this "tailcall" loop is
         // done
-        function.stack.enter_scope();
+        let mut exprs = Vec::new();
+        exprs.push(expr);
         let saved_line = function.current_line;
         function.current_line = self.source
             .line_number_at_byte(expr.span.start);
         while let Some(next) = self.compile_(expr, function, tail_position)? {
+            exprs.push(next);
             expr = next;
             function.current_line = self.source
                 .line_number_at_byte(expr.span.start);
         }
-        let count = function.exit_scope(self);
-        function.emit(Slide(count));
+        for expr in exprs.iter().rev() {
+            let mut count = 0;
+            if let Expr::LetBindings(ref bindings, _) = expr.value {
+                for binding in bindings {
+                    count += function.pop_pattern(&binding.name.value);
+                }
+                self.stack_constructors.exit_scope();
+            }
+            function.emit(Slide(count));
+        }
         function.current_line = saved_line;
         Ok(())
     }
@@ -565,7 +598,7 @@ impl<'a> Compiler<'a> {
                         });
                         match bind.name.value {
                             Pattern::Ident(ref name) => {
-                                function.new_stack_var(self, name.name.clone());
+                                function.new_stack_var(name.name.clone());
                             }
                             _ => panic!("ICE: Unexpected non identifer pattern"),
                         }
@@ -671,14 +704,13 @@ impl<'a> Compiler<'a> {
                 let mut end_jumps = Vec::new();
                 for (alt, &start_index) in alts.iter().zip(start_jumps.iter()) {
                     self.stack_constructors.enter_scope();
-                    function.stack.enter_scope();
                     match alt.pattern.value {
                         Pattern::Constructor(_, ref args) => {
                             function.function.instructions[start_index] =
                                 CJump(function.function.instructions.len() as VmIndex);
                             function.emit(Split);
                             for arg in args.iter() {
-                                function.push_stack_var(self, arg.name.clone());
+                                function.push_stack_var(arg.name.clone());
                             }
                         }
                         Pattern::Record { .. } => {
@@ -688,11 +720,11 @@ impl<'a> Compiler<'a> {
                         Pattern::Ident(ref id) => {
                             function.function.instructions[start_index] =
                                 Jump(function.function.instructions.len() as VmIndex);
-                            function.new_stack_var(self, id.name.clone());
+                            function.new_stack_var(id.name.clone());
                         }
                     }
                     self.compile(&alt.expr, function, tail_position)?;
-                    let count = function.exit_scope(self);
+                    let count = function.pop_pattern(&alt.pattern.value);
                     self.stack_constructors.exit_scope();
                     function.emit(Slide(count));
                     end_jumps.push(function.function.instructions.len());
@@ -769,7 +801,7 @@ impl<'a> Compiler<'a> {
                            -> Result<()> {
         match *pattern {
             Pattern::Ident(ref name) => {
-                function.new_stack_var(self, name.name.clone());
+                function.new_stack_var(name.name.clone());
             }
             Pattern::Record { ref types, ref fields, .. } => {
                 let typ = resolve::remove_aliases(self, pattern_type.clone());
@@ -795,20 +827,14 @@ impl<'a> Compiler<'a> {
                             // pushing a lot of unnecessary fields to the stack
                             // Polymorphic records also needs to generate field accesses as `Split`
                             // would push the fields in a different order depending on the record
-
-                            // Add a dummy variable for the record itself so the correct number
-                            // of slots are removed when exiting
-                            function.new_stack_var(self, self.empty_symbol.clone());
-
                             let record_index = function.stack_size();
                             for pattern_field in fields {
                                 function.emit(Push(record_index));
                                 function.emit_field(self, &typ, &pattern_field.0)?;
-                                function.new_stack_var(self,
-                                                       pattern_field.1
-                                                           .as_ref()
-                                                           .unwrap_or(&pattern_field.0)
-                                                           .clone());
+                                function.new_stack_var(pattern_field.1
+                                    .as_ref()
+                                    .unwrap_or(&pattern_field.0)
+                                    .clone());
                             }
                         } else {
                             function.emit(Split);
@@ -818,9 +844,9 @@ impl<'a> Compiler<'a> {
                                     Some(&(ref name, ref bind)) => {
                                         bind.as_ref().unwrap_or(name).clone()
                                     }
-                                    None => self.empty_symbol.clone(),
+                                    None => self.symbols.symbol(""),
                                 };
-                                function.push_stack_var(self, name);
+                                function.push_stack_var(name);
                             }
                         }
                     }
@@ -843,15 +869,14 @@ impl<'a> Compiler<'a> {
                       function: &mut FunctionEnvs)
                       -> Result<(VmIndex, VmIndex, CompiledFunction)> {
         function.start_function(self, args.len() as VmIndex, id.name.clone(), id.typ.clone());
-
-        function.stack.enter_scope();
         for arg in args {
-            function.push_stack_var(self, arg.name.clone());
+            function.push_stack_var(arg.name.clone());
         }
         self.compile(body, function, true)?;
 
-        function.exit_scope(self);
-
+        for _ in 0..args.len() {
+            function.pop_var();
+        }
         // Insert all free variables into the above globals free variables
         // if they arent in that lambdas scope
         let f = function.end_function(self);

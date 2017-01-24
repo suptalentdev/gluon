@@ -17,22 +17,16 @@ use base::pos::{self, BytePos, Span, Spanned};
 use base::symbol::Symbol;
 use base::types::ArcType;
 
-use infix::{OpTable, Reparser};
-use layout::Layout;
-use token::{Token, Tokenizer};
-
-pub use infix::Error as InfixError;
-pub use layout::Error as LayoutError;
-pub use token::Error as TokenizeError;
+use infix::{OpTable, Reparser, Error as InfixError};
+use layout::{Layout, Error as LayoutError};
+use token::{Token, Tokenizer, Error as TokenizeError};
 
 mod grammar;
 mod infix;
 mod layout;
 mod token;
 
-type LalrpopError<'input> = lalrpop_util::ParseError<BytePos,
-                                                     Token<'input>,
-                                                     Spanned<Error, BytePos>>;
+type LalrpopError<'input> = lalrpop_util::ParseError<BytePos, Token<'input>, Error>;
 
 /// Shrink hidden spans to fit the visible expressions and flatten singleton blocks.
 fn shrink_hidden_spans<Id>(mut expr: SpannedExpr<Id>) -> SpannedExpr<Id> {
@@ -127,7 +121,7 @@ impl Error {
             ExtraToken { token: (lpos, token, rpos) } => {
                 pos::spanned2(lpos, rpos, Error::ExtraToken(token.to_string()))
             }
-            User { error } => error,
+            User { error } => pos::spanned2(0.into(), 0.into(), error),
         }
     }
 }
@@ -157,7 +151,6 @@ impl<I, E> ResultOkIter<I, E> {
 
 impl<I, T, E> Iterator for ResultOkIter<I, E>
     where I: Iterator<Item = Result<T, E>>,
-          E: ::std::fmt::Debug,
 {
     type Item = T;
 
@@ -180,7 +173,7 @@ struct SharedIter<'a, I: 'a> {
 
 impl<'a, I> Clone for SharedIter<'a, I> {
     fn clone(&self) -> SharedIter<'a, I> {
-        SharedIter { iter: self.iter.clone() }
+        SharedIter { iter: self.iter }
     }
 }
 
@@ -226,14 +219,8 @@ pub fn parse_partial_expr<Id>(symbols: &mut IdentEnv<Ident = Id>,
 
     let layout = Layout::new(SharedIter::new(&result_ok_iter)).map(|token| {
         /// Return the tokenizer error if one exists
-        result_ok_iter.borrow_mut()
-            .result(())
-            .map_err(|err| {
-                pos::spanned2(err.span.start.absolute,
-                              err.span.end.absolute,
-                              err.value.into())
-            })?;
-        let token = token.map_err(|err| pos::spanned2(0.into(), 0.into(), err.into()))?;
+        result_ok_iter.borrow_mut().result(())?;
+        let token = token?;
         debug!("Lex {:?}", token.value);
         let Span { start, end, .. } = token.span;
         Ok((start.absolute, token.value, end.absolute))
@@ -241,21 +228,7 @@ pub fn parse_partial_expr<Id>(symbols: &mut IdentEnv<Ident = Id>,
 
     let mut parse_errors = Errors::new();
 
-    let result = grammar::parse_TopExpr(input, symbols, &mut parse_errors, layout);
-
-    // If there is a tokenizer error it may still exist in the result iterator wrapper.
-    // If that is the case we return that error instead of the unexpected EOF error that lalrpop
-    // emitted
-    if let Err(err) = result_ok_iter.borrow_mut().result(()) {
-        parse_errors.pop();// Remove the EOF error
-        parse_errors.push(lalrpop_util::ParseError::User {
-            error: pos::spanned2(err.span.start.absolute,
-                                 err.span.end.absolute,
-                                 err.value.into()),
-        });
-    }
-
-    match result {
+    match grammar::parse_TopExpr(input, symbols, &mut parse_errors, layout) {
         Ok(mut expr) => {
             let mut errors = transform_errors(parse_errors);
             let mut reparser = Reparser::new(OpTable::default(), symbols);

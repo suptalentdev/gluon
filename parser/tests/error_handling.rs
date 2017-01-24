@@ -8,7 +8,7 @@ mod support;
 use base::ast::{TypedIdent, Pattern};
 use base::pos::{self, BytePos};
 
-use parser::{Error, ParseErrors, TokenizeError};
+use parser::{Error, ParseErrors};
 
 use support::*;
 
@@ -70,50 +70,6 @@ fn unclosed_string() {
 
     let result = parse(r#"
 "abc
-"#);
-    assert!(result.is_err());
-}
-
-#[test]
-fn tokenizer_error_is_returned() {
-    let _ = ::env_logger::init();
-
-    let result = parse(r#"
-12345678901234567890 test
-"#);
-
-    let error = Error::Token(TokenizeError::NonParseableInt);
-    let span = pos::span(BytePos::from(0), BytePos::from(0));
-    let errors = ParseErrors::from(vec![pos::spanned(span, error)]);
-
-    assert_eq!(result.map_err(|(_, err)| err), Err(errors));
-}
-
-#[test]
-fn tokenizer_error_at_eof_is_returned() {
-    let _ = ::env_logger::init();
-
-    let result = parse(r#"
-12345678901234567890
-"#);
-
-    let error = Error::Token(TokenizeError::NonParseableInt);
-    let span = pos::span(BytePos::from(0), BytePos::from(0));
-    let errors = ParseErrors::from(vec![pos::spanned(span, error)]);
-
-    assert_eq!(result.map_err(|(_, err)| err), Err(errors));
-}
-
-#[test]
-fn no_infinite_loop_from_default_block() {
-    let _ = ::env_logger::init();
-
-    let result = parse(r#"
-let x = 1
-
-    x,
-    y = 1
-}
 "#);
     assert!(result.is_err());
 }
