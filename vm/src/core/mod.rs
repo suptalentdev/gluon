@@ -857,8 +857,7 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
                         }
                         ast::Pattern::Tuple { .. } |
                         ast::Pattern::Record { .. } |
-                        ast::Pattern::Ident(_) |
-                        ast::Pattern::Error => unreachable!(),
+                        ast::Pattern::Ident(_) => unreachable!(),
                     }
                 }
                 let complete = groups.len() ==
@@ -1037,7 +1036,6 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
                 ast::Pattern::Record { .. } |
                 ast::Pattern::Tuple { .. } => CType::Record,
                 ast::Pattern::Constructor(_, _) => CType::Constructor,
-                ast::Pattern::Error => panic!("ICE: Error pattern survived typechecking")
             }
         }
 
@@ -1144,7 +1142,6 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
                         }
                     }
                 }
-                ast::Pattern::Error => ()
             }
         }
         if record_fields.is_empty() {

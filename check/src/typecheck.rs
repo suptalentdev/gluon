@@ -54,8 +54,8 @@ pub enum TypeError<I> {
     UndefinedRecord { fields: Vec<I> },
     /// Found a case expression without any alternatives
     EmptyCase,
-    /// An `Error` ast node was found indicating an invalid parse
-    ErrorAst(&'static str),
+    /// An `Error` expression was found indicating an invalid parse
+    ErrorExpression,
 }
 
 impl<I> From<KindCheckError<I>> for TypeError<I>
@@ -134,7 +134,7 @@ impl<I: fmt::Display + AsRef<str>> fmt::Display for TypeError<I> {
                 Ok(())
             }
             EmptyCase => write!(f, "`case` expression with no alternatives"),
-            ErrorAst(typ) => write!(f, "`Error` {} found during typechecking", typ),
+            ErrorExpression => write!(f, "`Error` expression found during typechecking"),
         }
     }
 }
@@ -428,7 +428,7 @@ impl<'a> Typecheck<'a> {
                 DuplicateField(_) |
                 UndefinedRecord { .. } |
                 EmptyCase |
-                ErrorAst(_) |
+                ErrorExpression |
                 Rename(_) |
                 KindError(_) => (),
                 NotAFunction(ref mut typ) |
@@ -855,7 +855,7 @@ impl<'a> Typecheck<'a> {
                 }
                 Ok(TailCall::Type(self.typecheck(last)))
             }
-            Expr::Error => Err(TypeError::ErrorAst("expression")),
+            Expr::Error => Err(TypeError::ErrorExpression),
         }
     }
 
@@ -1039,7 +1039,6 @@ impl<'a> Typecheck<'a> {
                 id.typ = match_type.clone();
                 match_type
             }
-            Pattern::Error => self.error(span, TypeError::ErrorAst("pattern")),
         }
     }
 
@@ -1285,7 +1284,6 @@ impl<'a> Typecheck<'a> {
                     self.finish_pattern(level, arg, &arg_type);
                 }
             }
-            Pattern::Error => (),
         }
     }
 

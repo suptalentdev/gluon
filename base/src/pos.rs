@@ -9,14 +9,8 @@ use std::ops::{Add, AddAssign, Sub, SubAssign};
 macro_rules! pos_struct {
     (#[$doc:meta] pub struct $Pos:ident($T:ty);) => {
         #[$doc]
-        #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
         pub struct $Pos($T);
-
-        impl fmt::Debug for $Pos {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                write!(f, "{}", self.0)
-            }
-        }
 
         impl $Pos {
             pub fn to_usize(&self) -> usize {
@@ -94,7 +88,7 @@ impl fmt::Display for Line {
 }
 
 /// A location in a source file
-#[derive(Copy, Clone, Default, Eq, PartialEq, Debug, Hash, Ord, PartialOrd)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, Ord, PartialOrd)]
 pub struct Location {
     pub line: Line,
     pub column: Column,
