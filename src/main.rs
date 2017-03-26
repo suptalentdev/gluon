@@ -31,7 +31,7 @@ fn run_files<'s, I>(vm: &Thread, files: I) -> Result<()>
 
 #[cfg(feature = "env_logger")]
 fn init_env_logger() {
-    ::env_logger::init().unwrap();
+    let _ = ::env_logger::init();
 }
 
 #[cfg(not(feature = "env_logger"))]
