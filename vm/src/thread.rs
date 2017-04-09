@@ -605,7 +605,7 @@ impl ThreadInternal for Thread {
         let mut context = self.current_context();
         context.stack.push(Closure(closure));
         context.borrow_mut().enter_scope(0, State::Closure(closure));
-        let async = try_future!(context.execute(false));
+        let async = try_future!(context.execute());
         match async {
             Async::Ready(context) => FutureValue::Value(Ok((self, context.unwrap().stack.pop()))),
             Async::NotReady => FutureValue::Future(Execute::new(self)),
@@ -649,7 +649,7 @@ impl ThreadInternal for Thread {
                          args: VmIndex)
                          -> Result<Async<Option<OwnedContext<'b>>>> {
         context.borrow_mut().do_call(args)?;
-        context.execute(false)
+        context.execute()
     }
 
     fn resume(&self) -> Result<Async<OwnedContext>> {
@@ -658,7 +658,7 @@ impl ThreadInternal for Thread {
             // Only the top level frame left means that the thread has finished
             return Err(Error::Dead);
         }
-        context = try_ready!(context.execute(true)).unwrap();
+        context = try_ready!(context.execute()).unwrap();
         Ok(Async::Ready(context))
     }
 
@@ -969,7 +969,7 @@ impl<'b> OwnedContext<'b> {
         if exists { Ok(self) } else { Err(()) }
     }
 
-    fn execute(self, polled: bool) -> Result<Async<Option<OwnedContext<'b>>>> {
+    fn execute(self) -> Result<Async<Option<OwnedContext<'b>>>> {
         let mut maybe_context = Some(self);
         while let Some(mut context) = maybe_context {
             debug!("STACK\n{:?}", context.stack.get_frames());
@@ -1000,7 +1000,7 @@ impl<'b> OwnedContext<'b> {
                 State::Extern(ext) => {
                     let instruction_index = context.borrow_mut().stack.frame.instruction_index;
                     context.borrow_mut().stack.frame.instruction_index = 1;
-                    Some(try_ready!(context.execute_function(instruction_index == 0, &ext, polled)))
+                    Some(try_ready!(context.execute_function(instruction_index == 0, &ext)))
                 }
                 State::Closure(closure) => {
                     let max_stack_size = context.max_stack_size;
@@ -1055,8 +1055,7 @@ impl<'b> OwnedContext<'b> {
 
     fn execute_function(mut self,
                         initial_call: bool,
-                        function: &ExternFunction,
-                        polled: bool)
+                        function: &ExternFunction)
                         -> Result<Async<OwnedContext<'b>>> {
         info!("CALL EXTERN {} {:?}",
               function.id,
@@ -1072,13 +1071,7 @@ impl<'b> OwnedContext<'b> {
             if status == Status::Yield {
                 return Ok(Async::NotReady);
             }
-        }
-        if let Some(mut poll_fn) = self.poll_fn.take() {
-            // We can only poll the future if the code is currently executing in a future
-            if !polled {
-                self.poll_fn = Some(poll_fn);
-                return Ok(Async::NotReady);
-            }
+        } else if let Some(mut poll_fn) = self.poll_fn.take() {
             // Poll the future that was returned from the initial call to this extern function
             match poll_fn(self.thread, &mut self)? {
                 Async::Ready(()) => (),

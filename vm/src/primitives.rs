@@ -310,8 +310,7 @@ pub fn load(vm: &Thread) -> Result<()> {
         eq => primitive!(2 <str as PartialEq>::eq),
         slice => primitive!(3 prim::string_slice),
         from_utf8 => primitive::<fn(Vec<u8>) -> StdResult<String, ()>>("from_utf8", prim::from_utf8),
-        char_at => primitive!(2 prim::char_at),
-        as_bytes => primitive!(1 str::as_bytes)
+        char_at => primitive!(2 prim::char_at)
     ))?;
     vm.define_global("char",
                        record!(

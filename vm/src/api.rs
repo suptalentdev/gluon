@@ -892,7 +892,7 @@ impl<'vm, F> AsyncPushable<'vm> for FutureResult<F>
         unsafe {
             context.return_future(self.0);
         }
-        Ok(Async::Ready(()))
+        Ok(Async::NotReady)
     }
 }
 
@@ -1113,17 +1113,16 @@ impl<'vm> Getable<'vm> for RootStr<'vm> {
     }
 }
 
-/// NewType which can be used to push types implementating `AsRef`
-/// Newtype which can be used to push types implementating `AsRef`
-pub struct PushAsRef<T, R: ?Sized>(T, PhantomData<R>);
+/// Newtype which can be used to push types implementating  `AsRef`
+pub struct PushAsRef<T, R>(T, PhantomData<R>);
 
-impl<T, R: ?Sized> PushAsRef<T, R> {
+impl<T, R> PushAsRef<T, R> {
     pub fn new(value: T) -> PushAsRef<T, R> {
         PushAsRef(value, PhantomData)
     }
 }
 
-impl<T, R: ?Sized> VmType for PushAsRef<T, R>
+impl<T, R> VmType for PushAsRef<T, R>
     where T: AsRef<R>,
           R: 'static,
           &'static R: VmType,
@@ -1135,7 +1134,7 @@ impl<T, R: ?Sized> VmType for PushAsRef<T, R>
     }
 }
 
-impl<'vm, T, R: ?Sized> Pushable<'vm> for PushAsRef<T, R>
+impl<'vm, T, R> Pushable<'vm> for PushAsRef<T, R>
     where T: AsRef<R>,
           for<'a> &'a R: Pushable<'vm>,
 {
@@ -1305,7 +1304,7 @@ pub mod record {
 
     impl<'vm> GetableFieldList<'vm> for () {
         fn from_value(_vm: &'vm Thread, values: &[Value]) -> Option<Self> {
-            debug_assert!(values.is_empty(), "{:?}", values);
+            debug_assert!(values.is_empty());
             Some(())
         }
     }
