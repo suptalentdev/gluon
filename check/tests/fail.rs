@@ -23,8 +23,7 @@ macro_rules! assert_err {
         match $e {
             Ok(x) => assert!(false, "Expected error, got {}",
                              types::display_type(&*symbols.borrow(), &x)),
-            Err(err) => {
-                let errors = err.errors();
+            Err(errors) => {
                 let mut iter = (&errors).into_iter();
                 $(
                 match iter.next() {
@@ -52,8 +51,8 @@ macro_rules! assert_unify_err {
         match $e {
             Ok(x) => assert!(false, "Expected error, got {}",
                              types::display_type(&*symbols.borrow(), &x)),
-            Err(err) => {
-                for error in err.errors() {
+            Err(errors) => {
+                for error in errors {
                     match error {
                         Spanned { value: Unification(_, _, ref errors), .. } => {
                             let mut iter = errors.iter();
@@ -378,6 +377,7 @@ type Bar = Test Int
     assert_err!(result, KindError(TypeMismatch(..)));
 }
 
+
 #[test]
 fn type_alias_with_explicit_function_kind() {
     let _ = ::env_logger::init();
@@ -400,19 +400,7 @@ let y = 1.0
 y
 "#;
     let result = support::typecheck_expr_expected(text, Some(&Type::int())).1;
-    let errors: Vec<_> = result.unwrap_err().errors().into();
+    let errors: Vec<_> = result.unwrap_err().into();
     assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].span.map(|loc| loc.absolute),
-               Span::new(13.into(), 14.into()));
-}
-
-#[test]
-fn issue_286() {
-    let _ = ::env_logger::init();
-    let text = r#"
-let Test = 1
-1
-"#;
-    let result = support::typecheck(text);
-    assert_err!(result, UndefinedVariable(..));
+    assert_eq!(errors[0].span, Span::new(13.into(), 14.into()));
 }

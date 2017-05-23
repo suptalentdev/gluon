@@ -132,11 +132,7 @@ impl AsRef<str> for SymbolRef {
 impl SymbolRef {
     /// Checks whether the names of two symbols are equal
     pub fn name_eq(&self, other: &SymbolRef) -> bool {
-        self.name() == other.name()
-    }
-
-    pub fn name(&self) -> &Name {
-        Name::new(self)
+        self == other || self.0 == other.0
     }
 
     /// Returns the name of this symbol as it was originally declared (strips location information)
@@ -153,14 +149,8 @@ impl SymbolRef {
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct NameBuf(String);
 
-#[derive(Debug, Eq, Hash)]
+#[derive(Debug, Eq, PartialEq, Hash)]
 pub struct Name(str);
-
-impl PartialEq for Name {
-    fn eq(&self, other: &Name) -> bool {
-        self.0.as_ptr() == other.0.as_ptr() || self.0 == other.0
-    }
-}
 
 pub struct Components<'a>(::std::str::Split<'a, char>);
 

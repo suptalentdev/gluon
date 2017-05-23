@@ -3,6 +3,7 @@
 //! If an AST passes the checks in `Typecheck::typecheck_expr` (which runs all of theses checks
 //! the expression is expected to compile succesfully (if it does not it should be considered an
 //! internal compiler error.
+#![doc(html_root_url="https://docs.rs/gluon_check/0.4.0/gluon_check")] // # GLUON
 
 #[macro_use]
 extern crate log;
@@ -45,7 +46,7 @@ mod tests {
 
     use base::kind::{ArcKind, KindEnv};
     use base::symbol::{Symbol, Symbols, SymbolModule, SymbolRef};
-    use base::types::{Alias, ArcType, RecordSelector, TypeEnv};
+    use base::types::{Alias, ArcType, TypeEnv};
 
     pub struct MockEnv;
 
@@ -62,10 +63,7 @@ mod tests {
         fn find_type_info(&self, _id: &SymbolRef) -> Option<&Alias<Symbol, ArcType>> {
             None
         }
-        fn find_record(&self,
-                       _fields: &[Symbol],
-                       _selector: RecordSelector)
-                       -> Option<(ArcType, ArcType)> {
+        fn find_record(&self, _fields: &[Symbol]) -> Option<(ArcType, ArcType)> {
             None
         }
     }
