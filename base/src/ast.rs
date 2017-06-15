@@ -44,7 +44,8 @@ impl<Id> TypedIdent<Id> {
 }
 
 impl<Id> AsRef<str> for TypedIdent<Id>
-    where Id: AsRef<str>
+where
+    Id: AsRef<str>,
 {
     fn as_ref(&self) -> &str {
         self.name.as_ref()
@@ -76,6 +77,7 @@ pub enum Pattern<Id> {
         elems: Vec<SpannedPattern<Id>>,
     },
     Ident(TypedIdent<Id>),
+    Error,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -293,6 +295,7 @@ pub fn walk_mut_pattern<V: ?Sized + MutVisitor>(v: &mut V, p: &mut Pattern<V::Id
             }
         }
         Pattern::Ident(ref mut id) => v.visit_typ(&mut id.typ),
+        Pattern::Error => (),
     }
 }
 
@@ -406,6 +409,7 @@ pub fn walk_pattern<V: ?Sized + Visitor>(v: &mut V, p: &Pattern<V::Ident>) {
             }
         }
         Pattern::Ident(ref id) => v.visit_typ(&id.typ),
+        Pattern::Error => (),
     }
 }
 
@@ -490,6 +494,7 @@ impl Typed for Pattern<Symbol> {
             Pattern::Record { ref typ, .. } => typ.clone(),
             Pattern::Tuple { ref typ, .. } => typ.clone(),
             Pattern::Constructor(ref id, ref args) => get_return_type(env, &id.typ, args.len()),
+            Pattern::Error => Type::hole(),
         }
     }
 }
@@ -505,20 +510,21 @@ fn get_return_type(env: &TypeEnv, alias_type: &ArcType, arg_count: usize) -> Arc
         return get_return_type(env, ret, arg_count - 1);
     }
 
-    let alias =
-        {
-            let alias_ident = alias_type.alias_ident().unwrap_or_else(|| {
-            panic!("ICE: Expected function with {} more arguments, found {:?}",
-                   arg_count,
-                   alias_type)
+    let alias = {
+        let alias_ident = alias_type.alias_ident().unwrap_or_else(|| {
+            panic!(
+                "ICE: Expected function with {} more arguments, found {:?}",
+                arg_count,
+                alias_type
+            )
         });
 
-            env.find_type_info(alias_ident)
-                .unwrap_or_else(|| panic!("Unexpected type {:?} is not a function", alias_type))
-        };
+        env.find_type_info(alias_ident).unwrap_or_else(|| {
+            panic!("Unexpected type {:?} is not a function", alias_type)
+        })
+    };
 
-    let typ = types::walk_move_type(alias.typ().into_owned(),
-                                    &mut |typ| {
+    let typ = types::walk_move_type(alias.typ().into_owned(), &mut |typ| {
         match *typ {
             Type::Generic(ref generic) => {
                 // Replace the generic variable with the type from the list
@@ -542,8 +548,7 @@ pub fn is_operator_char(c: char) -> bool {
 }
 
 pub fn is_constructor(s: &str) -> bool {
-    s.rsplit('.')
-        .next()
-        .unwrap()
-        .starts_with(char::is_uppercase)
+    s.rsplit('.').next().unwrap().starts_with(
+        char::is_uppercase,
+    )
 }
