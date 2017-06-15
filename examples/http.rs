@@ -26,7 +26,8 @@ use std::marker::PhantomData;
 use std::str;
 use std::sync::{Arc, Mutex};
 
-use hyper::{Chunk, Method, StatusCode};
+use hyper::{Chunk, Method};
+use hyper::status::StatusCode;
 use hyper::server::Service;
 
 use futures::Async;
@@ -112,7 +113,7 @@ define_vmtype! { StatusCode }
 
 impl<'vm> Getable<'vm> for Wrap<StatusCode> {
     fn from_value(_: &'vm Thread, value: Variants) -> Option<Self> {
-        use hyper::StatusCode::*;
+        use hyper::status::StatusCode::*;
         match value.as_ref() {
             ValueRef::Tag(tag) => {
                 Some(Wrap(match tag {
