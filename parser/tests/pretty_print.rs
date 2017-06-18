@@ -148,6 +148,7 @@ x
 }
 
 // TODO
+#[ignore]
 #[test]
 fn preserve_more_block_comments() {
     let expr = r#"
