@@ -187,10 +187,9 @@ mod gc_str {
         pub fn from_utf8(array: GcPtr<ValueArray>) -> Result<GcStr, ()> {
             unsafe {
                 if array
-                    .as_slice::<u8>()
-                    .and_then(|bytes| str::from_utf8(bytes).ok())
-                    .is_some()
-                {
+                       .as_slice::<u8>()
+                       .and_then(|bytes| str::from_utf8(bytes).ok())
+                       .is_some() {
                     Ok(GcStr::from_utf8_unchecked(array))
                 } else {
                     Err(())
@@ -309,12 +308,13 @@ impl<'a> fmt::Display for ValuePrinter<'a> {
         let arena = Arena::new();
         let mut s = Vec::new();
         InternalPrinter {
-            typ: self.typ,
-            env: self.env,
-            arena: &arena,
-            prec: Top,
-            level: self.max_level,
-        }.pretty(self.value)
+                typ: self.typ,
+                env: self.env,
+                arena: &arena,
+                prec: Top,
+                level: self.max_level,
+            }
+            .pretty(self.value)
             .group()
             .1
             .render(self.width, &mut s)
@@ -379,15 +379,13 @@ impl<'a, 't> InternalPrinter<'a, 't> {
     }
 
     fn pretty_data<I>(&self, tag: VmTag, fields: I) -> DocBuilder<'a, Arena<'a>>
-    where
-        I: IntoIterator<Item = Value>,
+        where I: IntoIterator<Item = Value>
     {
-        fn enclose<'a>(
-            p: Prec,
-            limit: Prec,
-            arena: &'a Arena<'a>,
-            doc: DocBuilder<'a, Arena<'a>>,
-        ) -> DocBuilder<'a, Arena<'a>> {
+        fn enclose<'a>(p: Prec,
+                       limit: Prec,
+                       arena: &'a Arena<'a>,
+                       doc: DocBuilder<'a, Arena<'a>>)
+                       -> DocBuilder<'a, Arena<'a>> {
             if p >= limit {
                 chain![arena; "(", doc, ")"]
             } else {
@@ -418,12 +416,11 @@ impl<'a, 't> InternalPrinter<'a, 't> {
                         ]
             }
             Type::Variant(ref row) => {
-                let type_field = row.row_iter().nth(tag as usize).expect(
-                    "Variant tag is out of bounds",
-                );
+                let type_field = row.row_iter()
+                    .nth(tag as usize)
+                    .expect("Variant tag is out of bounds");
                 let mut empty = true;
-                let doc =
-                    chain![arena;
+                let doc = chain![arena;
                             type_field.name.declared_name().to_string(),
                             arena.concat(fields.into_iter().zip(arg_iter(&type_field.typ))
                                 .map(|(field, typ)| {
@@ -530,10 +527,9 @@ unsafe impl<'b> DataDef for PartialApplicationDataDef<'b> {
         use std::mem::size_of;
         size_of::<Callable>() + Array::<Value>::size_of(self.1.len())
     }
-    fn initialize<'w>(
-        self,
-        mut result: WriteOnly<'w, PartialApplicationData>,
-    ) -> &'w mut PartialApplicationData {
+    fn initialize<'w>(self,
+                      mut result: WriteOnly<'w, PartialApplicationData>)
+                      -> &'w mut PartialApplicationData {
         unsafe {
             let result = &mut *result.as_mut_ptr();
             result.function = self.0;
@@ -589,12 +585,10 @@ impl fmt::Debug for Value {
                     String(x) => write!(f, "{:?}", &*x),
                     Value::Tag(tag) => write!(f, "{{{:?}: }}", tag),
                     Value::Data(ref data) => {
-                        write!(
-                            f,
-                            "{{{:?}: {:?}}}",
-                            data.tag,
-                            LevelSlice(level - 1, &data.fields)
-                        )
+                        write!(f,
+                               "{{{:?}: {:?}}}",
+                               data.tag,
+                               LevelSlice(level - 1, &data.fields))
                     }
                     Value::Array(ref array) => {
                         let mut first = true;
@@ -852,8 +846,7 @@ impl ValueArray {
     }
 
     pub unsafe fn initialize<I>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = Value>,
+        where I: IntoIterator<Item = Value>
     {
         let iter = iter.into_iter();
 
@@ -914,7 +907,9 @@ unsafe impl<'a> DataDef for &'a ValueArray {
             let result = &mut *result.as_mut_ptr();
             result.repr = self.repr;
             on_array!(self, |array: &Array<_>| {
-                result.unsafe_array_mut().initialize(array.iter().cloned())
+                result
+                    .unsafe_array_mut()
+                    .initialize(array.iter().cloned())
             });
             result
         }
@@ -990,10 +985,8 @@ impl<'t> Cloner<'t> {
     pub fn deep_clone(&mut self, value: Value) -> Result<Value> {
         // Only need to clone values which belong to a younger generation than the gc that the new
         // value will live in
-        if self.receiver_generation.can_contain_values_from(
-            value.generation(),
-        )
-        {
+        if self.receiver_generation
+               .can_contain_values_from(value.generation()) {
             return Ok(value);
         }
         match value {
@@ -1003,9 +996,9 @@ impl<'t> Cloner<'t> {
             Closure(data) => self.deep_clone_closure(data).map(Value::Closure),
             PartialApplication(data) => self.deep_clone_app(data).map(Value::PartialApplication),
             Function(f) => {
-                self.gc.alloc(Move(ExternFunction::clone(&f))).map(
-                    Value::Function,
-                )
+                self.gc
+                    .alloc(Move(ExternFunction::clone(&f)))
+                    .map(Value::Function)
             }
             Value::Tag(i) => Ok(Value::Tag(i)),
             Value::Byte(i) => Ok(Value::Byte(i)),
@@ -1017,8 +1010,7 @@ impl<'t> Cloner<'t> {
     }
 
     fn deep_clone_ptr<T, A, R>(&mut self, value: GcPtr<T>, alloc: A) -> Result<StdResult<Value, R>>
-    where
-        A: FnOnce(&mut Gc, &T) -> Result<(Value, R)>,
+        where A: FnOnce(&mut Gc, &T) -> Result<(Value, R)>
     {
         let key = &*value as *const T as *const ();
         let new_ptr = match self.visited.entry(key) {
@@ -1035,23 +1027,21 @@ impl<'t> Cloner<'t> {
 
     fn deep_clone_str(&mut self, data: GcStr) -> Result<Value> {
         unsafe {
-            Ok(
-                self.deep_clone_ptr(data.into_inner(), |gc, data| {
+            Ok(self.deep_clone_ptr(data.into_inner(), |gc, data| {
                     let ptr = GcStr::from_utf8_unchecked(gc.alloc(data)?);
                     Ok((String(ptr), ptr))
                 })?
-                    .unwrap_or_else(String),
-            )
+                   .unwrap_or_else(String))
         }
     }
     fn deep_clone_data(&mut self, data: GcPtr<DataStruct>) -> Result<GcPtr<DataStruct>> {
         let result = self.deep_clone_ptr(data, |gc, data| {
-            let ptr = gc.alloc(Def {
-                tag: data.tag,
-                elems: &data.fields,
+                let ptr = gc.alloc(Def {
+                                       tag: data.tag,
+                                       elems: &data.fields,
+                                   })?;
+                Ok((Value::Data(ptr), ptr))
             })?;
-            Ok((Value::Data(ptr), ptr))
-        })?;
         match result {
             Ok(Value::Data(ptr)) => Ok(ptr),
             Ok(_) => unreachable!(),
@@ -1072,13 +1062,11 @@ impl<'t> Cloner<'t> {
     }
 
     fn deep_clone_array(&mut self, array: GcPtr<ValueArray>) -> Result<GcPtr<ValueArray>> {
-        unsafe fn deep_clone_elems<T, F>(
-            mut new_array: GcPtr<ValueArray>,
-            mut deep_clone: F,
-        ) -> Result<()>
-        where
-            T: Copy,
-            F: FnMut(T) -> Result<T>,
+        unsafe fn deep_clone_elems<T, F>(mut new_array: GcPtr<ValueArray>,
+                                         mut deep_clone: F)
+                                         -> Result<()>
+            where T: Copy,
+                  F: FnMut(T) -> Result<T>
         {
             let new_array = new_array.as_mut().unsafe_array_mut::<T>();
             for field in new_array.iter_mut() {
@@ -1088,9 +1076,9 @@ impl<'t> Cloner<'t> {
         }
 
         let result = self.deep_clone_ptr(array, |gc, array| {
-            let ptr = gc.alloc(array)?;
-            Ok((Value::Array(ptr), ptr))
-        })?;
+                let ptr = gc.alloc(array)?;
+                Ok((Value::Array(ptr), ptr))
+            })?;
         match result {
             Ok(Value::Array(ptr)) => Ok(ptr),
             Ok(_) => unreachable!(),
@@ -1115,9 +1103,9 @@ impl<'t> Cloner<'t> {
 
     fn deep_clone_closure(&mut self, data: GcPtr<ClosureData>) -> Result<GcPtr<ClosureData>> {
         let result = self.deep_clone_ptr(data, |gc, data| {
-            let ptr = gc.alloc(ClosureDataDef(data.function, &data.upvars))?;
-            Ok((Closure(ptr), ptr))
-        })?;
+                let ptr = gc.alloc(ClosureDataDef(data.function, &data.upvars))?;
+                Ok((Closure(ptr), ptr))
+            })?;
         match result {
             Ok(Value::Closure(ptr)) => Ok(ptr),
             Ok(_) => unreachable!(),
@@ -1132,16 +1120,13 @@ impl<'t> Cloner<'t> {
             }
         }
     }
-    fn deep_clone_app(
-        &mut self,
-        data: GcPtr<PartialApplicationData>,
-    ) -> Result<GcPtr<PartialApplicationData>> {
+    fn deep_clone_app(&mut self,
+                      data: GcPtr<PartialApplicationData>)
+                      -> Result<GcPtr<PartialApplicationData>> {
         let result = self.deep_clone_ptr(data, |gc, data| {
-            let ptr = gc.alloc(
-                PartialApplicationDataDef(data.function, &data.args),
-            )?;
-            Ok((PartialApplication(ptr), ptr))
-        })?;
+                let ptr = gc.alloc(PartialApplicationDataDef(data.function, &data.args))?;
+                Ok((PartialApplication(ptr), ptr))
+            })?;
         match result {
             Ok(Value::PartialApplication(ptr)) => Ok(ptr),
             Ok(_) => unreachable!(),
@@ -1185,11 +1170,10 @@ mod tests {
             self.0.as_ref()
         }
 
-        fn find_record(
-            &self,
-            _fields: &[Symbol],
-            _selector: RecordSelector,
-        ) -> Option<(ArcType, ArcType)> {
+        fn find_record(&self,
+                       _fields: &[Symbol],
+                       _selector: RecordSelector)
+                       -> Option<(ArcType, ArcType)> {
             None
         }
     }
@@ -1199,44 +1183,35 @@ mod tests {
         let mut gc = Gc::new(Generation::default(), usize::max_value());
 
         let list = Symbol::from("List");
-        let typ: ArcType = Type::variant(vec![
-            Field {
-                name: Symbol::from("Cons"),
-                typ: Type::function(
-                    vec![Type::int(), Type::ident(list.clone())],
-                    Type::ident(list.clone())
-                ),
-            },
-            Field {
-                name: Symbol::from("Nil"),
-                typ: Type::ident(list.clone()),
-            },
-        ]);
+        let typ: ArcType = Type::variant(vec![Field {
+                                                  name: Symbol::from("Cons"),
+                                                  typ: Type::function(vec![Type::int(),
+                                                                  Type::ident(list.clone())],
+                                                                      Type::ident(list.clone())),
+                                              },
+                                              Field {
+                                                  name: Symbol::from("Nil"),
+                                                  typ: Type::ident(list.clone()),
+                                              }]);
 
         let env = MockEnv(Some(Alias::new(list.clone(), vec![], typ.clone())));
 
         let nil = Value::Tag(1);
         assert_eq!(format!("{}", ValuePrinter::new(&env, &typ, nil)), "Nil");
-        let list1 = Value::Data(
-            gc.alloc(Def {
-                tag: 0,
-                elems: &[Value::Int(123), nil],
-            }).unwrap(),
-        );
-        assert_eq!(
-            format!("{}", ValuePrinter::new(&env, &typ, list1)),
-            "Cons 123 Nil"
-        );
-        let list2 = Value::Data(
-            gc.alloc(Def {
-                tag: 0,
-                elems: &[Value::Int(0), list1],
-            }).unwrap(),
-        );
-        assert_eq!(
-            format!("{}", ValuePrinter::new(&env, &typ, list2)),
-            "Cons 0 (Cons 123 Nil)"
-        );
+        let list1 = Value::Data(gc.alloc(Def {
+                                             tag: 0,
+                                             elems: &[Value::Int(123), nil],
+                                         })
+                                    .unwrap());
+        assert_eq!(format!("{}", ValuePrinter::new(&env, &typ, list1)),
+                   "Cons 123 Nil");
+        let list2 = Value::Data(gc.alloc(Def {
+                                             tag: 0,
+                                             elems: &[Value::Int(0), list1],
+                                         })
+                                    .unwrap());
+        assert_eq!(format!("{}", ValuePrinter::new(&env, &typ, list2)),
+                   "Cons 0 (Cons 123 Nil)");
     }
 
     #[test]
@@ -1248,9 +1223,7 @@ mod tests {
         let env = MockEnv(None);
 
         let nil = Value::Array(gc.alloc(&[1 as VmInt, 2, 3][..]).unwrap());
-        assert_eq!(
-            format!("{}", ValuePrinter::new(&env, &typ, nil)),
-            "[1, 2, 3]"
-        );
+        assert_eq!(format!("{}", ValuePrinter::new(&env, &typ, nil)),
+                   "[1, 2, 3]");
     }
 }

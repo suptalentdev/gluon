@@ -18,13 +18,11 @@ fn parse(text: &str) -> Result<SpannedExpr<String>, ParseErrors> {
 fn unclosed_let() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 let y =
     let x = 1
 y
-"#,
-    );
+"#);
 
     assert!(result.is_err(), "{}", result.unwrap_err());
 }
@@ -33,12 +31,10 @@ y
 fn sequence_expressions() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 f 1 2
 g ""
-"#,
-    );
+"#);
 
     match result {
         Ok(expr) => {
@@ -56,15 +52,13 @@ g ""
 fn let_in_let_args() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 let x =
     let y = 1
     let z = ""
     y + 1
 in x
-"#,
-    );
+"#);
 
     assert!(result.is_ok(), "{}", result.unwrap_err());
 }
@@ -72,14 +66,12 @@ in x
 fn and_on_same_line_as_type() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 type M a = | M a
 and M2 a = M a
 and HKT m = { x: m Int }
 in 1
-"#,
-    );
+"#);
 
     assert!(result.is_ok(), "{}", result.unwrap_err());
 }
@@ -88,15 +80,13 @@ in 1
 fn close_brace_on_same_line_as_type() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 type M = {
     x: Int
 }
 
 { M }
-"#,
-    );
+"#);
 
     assert!(result.is_ok(), "{}", result.unwrap_err());
 }
@@ -104,8 +94,7 @@ type M = {
 fn record_unindented_fields() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 let monad_Test: Monad Test = {
     (>>=) = \ta f ->
         match ta with
@@ -113,8 +102,7 @@ let monad_Test: Monad Test = {
     return = \x -> T x
 }
 in 1
-"#,
-    );
+"#);
 
     assert!(result.is_ok(), "{}", result.unwrap_err());
 }
@@ -124,15 +112,13 @@ in 1
 fn to_much_unindented_case_of() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 let test x =
     match x with
   | Some y -> y
   | None -> 0
 in test
-"#,
-    );
+"#);
 
     assert!(result.is_err(), "{:?}", result.unwrap());
 }
@@ -141,16 +127,14 @@ in test
 fn match_with_alignment() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 match x with
     | Some y ->
         match x with
             | Some y2 -> y2
             | None -> 0
     | None -> 0
-"#,
-    );
+"#);
 
     assert!(result.is_ok(), "{}", result.unwrap_err());
 
@@ -164,15 +148,13 @@ match x with
 fn allow_unindented_lambda() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 let f = \x ->
     let y = x + 1
     y
 
 f
-"#,
-    );
+"#);
 
     assert!(result.is_ok(), "{}", result.unwrap_err());
 }
@@ -181,12 +163,10 @@ f
 fn close_lambda_on_implicit_statement() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 \x -> x
 1
-"#,
-    );
+"#);
 
     assert!(result.is_ok(), "{}", result.unwrap_err());
 
@@ -200,16 +180,14 @@ fn close_lambda_on_implicit_statement() {
 fn if_expr_else_is_block() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 let f x = ()
 if True then
     1
 else
     f 2
     2
-"#,
-    );
+"#);
 
     assert!(result.is_ok(), "{}", result.unwrap_err());
 
@@ -228,16 +206,14 @@ else
 fn if_else_if_else() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 if True then
     1
 else if True then
     2
 else
     3
-"#,
-    );
+"#);
 
     assert!(result.is_ok(), "{}", result.unwrap_err());
 }
@@ -246,14 +222,12 @@ else
 fn block_match() {
     let _ = ::env_logger::init();
 
-    let result = parse(
-        r#"
+    let result = parse(r#"
 match True with
 | True -> 1
 | False -> 0
 2
-"#,
-    );
+"#);
 
     assert!(result.is_ok(), "{}", result.unwrap_err());
 

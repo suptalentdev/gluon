@@ -17,11 +17,11 @@ use {Error, Result};
 unsafe fn allocate(size: usize) -> *mut u8 {
     // Allocate an extra element if it does not fit exactly
     let cap = size / mem::size_of::<f64>() +
-        (if size % mem::size_of::<f64>() != 0 {
-             1
-         } else {
-             0
-         });
+              (if size % mem::size_of::<f64>() != 0 {
+                   1
+               } else {
+                   0
+               });
     ptr_from_vec(Vec::<f64>::with_capacity(cap))
 }
 
@@ -36,11 +36,11 @@ fn ptr_from_vec(mut buf: Vec<f64>) -> *mut u8 {
 #[inline]
 unsafe fn deallocate(ptr: *mut u8, old_size: usize) {
     let cap = old_size / mem::size_of::<f64>() +
-        (if old_size % mem::size_of::<f64>() != 0 {
-             1
-         } else {
-             0
-         });
+              (if old_size % mem::size_of::<f64>() != 0 {
+                   1
+               } else {
+                   0
+               });
     Vec::<f64>::from_raw_parts(ptr as *mut f64, 0, cap);
 }
 
@@ -115,10 +115,8 @@ impl Generation {
     }
 
     pub fn next(self) -> Generation {
-        assert!(
-            self.0 < i32::max_value(),
-            "To many generations has been created"
-        );
+        assert!(self.0 < i32::max_value(),
+                "To many generations has been created");
         Generation(self.0 + 1)
     }
 }
@@ -229,15 +227,13 @@ impl AllocPtr {
         unsafe {
             let alloc_size = GcHeader::value_offset() + value_size;
             let ptr = allocate(alloc_size) as *mut GcHeader;
-            ptr::write(
-                ptr,
-                GcHeader {
-                    next: None,
-                    type_info: type_info,
-                    value_size: value_size,
-                    marked: Cell::new(false),
-                },
-            );
+            ptr::write(ptr,
+                       GcHeader {
+                           next: None,
+                           type_info: type_info,
+                           value_size: value_size,
+                           marked: Cell::new(false),
+                       });
             AllocPtr { ptr: ptr }
         }
     }
@@ -355,8 +351,7 @@ impl<T: ?Sized + PartialOrd> PartialOrd for GcPtr<T> {
 
 impl<T: ?Sized + Hash> Hash for GcPtr<T> {
     fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
+        where H: Hasher
     {
         (**self).hash(state)
     }
@@ -427,8 +422,7 @@ pub trait Traverseable {
 }
 
 impl<T> Traverseable for Move<T>
-where
-    T: Traverseable,
+    where T: Traverseable
 {
     fn traverse(&self, gc: &mut Gc) {
         self.0.traverse(gc)
@@ -436,8 +430,7 @@ where
 }
 
 impl<T: ?Sized> Traverseable for Box<T>
-where
-    T: Traverseable,
+    where T: Traverseable
 {
     fn traverse(&self, gc: &mut Gc) {
         (**self).traverse(gc)
@@ -445,8 +438,7 @@ where
 }
 
 impl<'a, T: ?Sized> Traverseable for &'a T
-where
-    T: Traverseable,
+    where T: Traverseable
 {
     fn traverse(&self, gc: &mut Gc) {
         (**self).traverse(gc);
@@ -454,8 +446,7 @@ where
 }
 
 impl<'a, T: ?Sized> Traverseable for &'a mut T
-where
-    T: Traverseable,
+    where T: Traverseable
 {
     fn traverse(&self, gc: &mut Gc) {
         (**self).traverse(gc);
@@ -502,8 +493,7 @@ impl<T: ?Sized> Traverseable for *mut T {
 }
 
 impl<T> Traverseable for Cell<T>
-where
-    T: Traverseable + Copy,
+    where T: Traverseable + Copy
 {
     fn traverse(&self, f: &mut Gc) {
         self.get().traverse(f);
@@ -511,8 +501,7 @@ where
 }
 
 impl<U> Traverseable for [U]
-where
-    U: Traverseable,
+    where U: Traverseable
 {
     fn traverse(&self, f: &mut Gc) {
         for x in self.iter() {
@@ -522,8 +511,7 @@ where
 }
 
 impl<T> Traverseable for Vec<T>
-where
-    T: Traverseable,
+    where T: Traverseable
 {
     fn traverse(&self, gc: &mut Gc) {
         (**self).traverse(gc);
@@ -531,8 +519,7 @@ where
 }
 
 impl<T> Traverseable for VecDeque<T>
-where
-    T: Traverseable,
+    where T: Traverseable
 {
     fn traverse(&self, gc: &mut Gc) {
         self.as_slices().traverse(gc);
@@ -541,8 +528,7 @@ where
 
 /// When traversing a `GcPtr` we need to mark it
 impl<T: ?Sized> Traverseable for GcPtr<T>
-where
-    T: Traverseable,
+    where T: Traverseable
 {
     fn traverse(&self, gc: &mut Gc) {
         if !gc.mark(*self) {
@@ -582,10 +568,9 @@ impl Gc {
     ///
     /// Unsafe since `roots` must be able to traverse all accesible `GcPtr` values.
     pub unsafe fn alloc_and_collect<R, D>(&mut self, roots: R, def: D) -> Result<GcPtr<D::Value>>
-    where
-        R: Traverseable,
-        D: DataDef + Traverseable,
-        D::Value: Sized + Any,
+        where R: Traverseable,
+              D: DataDef + Traverseable,
+              D::Value: Sized + Any
     {
         self.check_collect((roots, &def));
         self.alloc(def)
@@ -593,33 +578,30 @@ impl Gc {
 
     /// Allocates a new object.
     pub fn alloc<D>(&mut self, def: D) -> Result<GcPtr<D::Value>>
-    where
-        D: DataDef,
-        D::Value: Sized + Any,
+        where D: DataDef,
+              D::Value: Sized + Any
     {
         let size = def.size();
         let needed = self.allocated_memory.saturating_add(size);
         if needed >= self.memory_limit {
             return Err(Error::OutOfMemory {
-                limit: self.memory_limit,
-                needed: needed,
-            });
+                           limit: self.memory_limit,
+                           needed: needed,
+                       });
         }
         Ok(self.alloc_ignore_limit_(size, def))
     }
 
     pub fn alloc_ignore_limit<D>(&mut self, def: D) -> GcPtr<D::Value>
-    where
-        D: DataDef,
-        D::Value: Sized + Any,
+        where D: DataDef,
+              D::Value: Sized + Any
     {
         self.alloc_ignore_limit_(def.size(), def)
     }
 
     fn alloc_ignore_limit_<D>(&mut self, size: usize, def: D) -> GcPtr<D::Value>
-    where
-        D: DataDef,
-        D::Value: Sized + Any,
+        where D: DataDef,
+              D::Value: Sized + Any
     {
         unsafe fn drop<T>(t: *mut ()) {
             ptr::drop_in_place(t as *mut T);
@@ -628,9 +610,9 @@ impl Gc {
             Entry::Occupied(entry) => &**entry.get(),
             Entry::Vacant(entry) => {
                 &**entry.insert(Box::new(TypeInfo {
-                    drop: drop::<D::Value>,
-                    generation: self.generation,
-                }))
+                                             drop: drop::<D::Value>,
+                                             generation: self.generation,
+                                         }))
             }
         };
         let mut ptr = AllocPtr::new::<D::Value>(type_info, size);
@@ -648,8 +630,7 @@ impl Gc {
     }
 
     pub unsafe fn check_collect<R>(&mut self, roots: R) -> bool
-    where
-        R: Traverseable,
+        where R: Traverseable
     {
         if self.allocated_memory >= self.collect_limit {
             self.collect(roots);
@@ -662,8 +643,7 @@ impl Gc {
     /// Does a mark and sweep collection by walking from `roots`. This function is unsafe since
     /// roots need to cover all reachable object.
     pub unsafe fn collect<R>(&mut self, roots: R)
-    where
-        R: Traverseable,
+        where R: Traverseable
     {
         info!("Start collect {:?}", self.generation);
         roots.traverse(self);

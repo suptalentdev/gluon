@@ -3,7 +3,9 @@
 mod build {
     extern crate lalrpop;
     pub fn main() {
-        lalrpop::Configuration::new().process_current_dir().unwrap();
+        lalrpop::Configuration::new()
+            .process_current_dir()
+            .unwrap();
         println!("cargo:rerun-if-changed=src/core/grammar.lalrpop");
     }
 }

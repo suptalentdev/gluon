@@ -8,8 +8,7 @@ use thread::{RootedValue, Thread, ThreadInternal, VmRoot};
 
 #[derive(Debug)]
 pub struct FieldIter<'a, T>
-where
-    T: Deref<Target = Thread> + 'a,
+    where T: Deref<Target = Thread> + 'a
 {
     value: &'a RootedValue<T>,
     index: usize,
@@ -17,8 +16,7 @@ where
 }
 
 impl<'a, T> Iterator for FieldIter<'a, T>
-where
-    T: VmRoot<'a>,
+    where T: VmRoot<'a>
 {
     type Item = (RootedValue<T>, ArcType);
 
@@ -29,9 +27,9 @@ where
                     Type::ExtendRow { ref fields, .. } => {
                         let index = self.index;
                         self.index += 1;
-                        self.value.get(index).map(|value| {
-                            (value, fields[index].typ.clone())
-                        })
+                        self.value
+                            .get(index)
+                            .map(|value| (value, fields[index].typ.clone()))
                     }
                     _ => None,
                 }
@@ -41,13 +39,11 @@ where
     }
 }
 
-pub fn field_iter<'vm, T>(
-    value: &'vm RootedValue<T>,
-    typ: &'vm ArcType,
-    thread: &Thread,
-) -> FieldIter<'vm, T>
-where
-    T: VmRoot<'vm>,
+pub fn field_iter<'vm, T>(value: &'vm RootedValue<T>,
+                          typ: &'vm ArcType,
+                          thread: &Thread)
+                          -> FieldIter<'vm, T>
+    where T: VmRoot<'vm>
 {
     FieldIter {
         value: value,

@@ -404,10 +404,8 @@ y
     let result = support::typecheck_expr_expected(text, Some(&Type::int())).1;
     let errors: Vec<_> = result.unwrap_err().errors().into();
     assert_eq!(errors.len(), 1);
-    assert_eq!(
-        errors[0].span.map(|loc| loc.absolute),
-        Span::new(13.into(), 14.into())
-    );
+    assert_eq!(errors[0].span.map(|loc| loc.absolute),
+               Span::new(13.into(), 14.into()));
 }
 
 #[test]
@@ -429,9 +427,8 @@ fn no_inference_variable_in_error() {
 "#;
     let result = support::typecheck(text);
 
-    assert_eq!(
-        &*format!("{}", result.unwrap_err()).replace("\t", "        "),
-        r#"test:Line: 2, Column: 1: Expected the following types to be equal
+    assert_eq!(&*format!("{}", result.unwrap_err()).replace("\t", "        "),
+               r#"test:Line: 2, Column: 1: Expected the following types to be equal
 Expected: b0 -> b1
 Found: {}
 1 errors were found during unification:
@@ -440,6 +437,5 @@ Types do not match:
         Found: {}
 () 1
 ^~~~
-"#
-    );
+"#);
 }

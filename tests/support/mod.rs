@@ -17,8 +17,7 @@ pub fn load_script(vm: &Thread, filename: &str, input: &str) -> ::gluon::Result<
 
 #[allow(dead_code)]
 pub fn run_expr_<'vm, T>(vm: &'vm Thread, s: &str, implicit_prelude: bool) -> T
-where
-    T: Getable<'vm> + VmType + Send + 'vm,
+    where T: Getable<'vm> + VmType + Send + 'vm
 {
     Compiler::new()
         .implicit_prelude(implicit_prelude)
@@ -30,8 +29,7 @@ where
 
 #[allow(dead_code)]
 pub fn run_expr<'vm, T>(vm: &'vm Thread, s: &str) -> T
-where
-    T: Getable<'vm> + VmType + Send + 'vm,
+    where T: Getable<'vm> + VmType + Send + 'vm
 {
     run_expr_(vm, s, false)
 }

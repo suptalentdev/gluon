@@ -21,15 +21,10 @@ pub struct Sender<T> {
     queue: Arc<Mutex<VecDeque<T>>>,
 }
 
-impl<T> Userdata for Sender<T>
-where
-    T: Any + Send + Sync + fmt::Debug + Traverseable,
-{
-}
+impl<T> Userdata for Sender<T> where T: Any + Send + Sync + fmt::Debug + Traverseable {}
 
 impl<T> fmt::Debug for Sender<T>
-where
-    T: fmt::Debug,
+    where T: fmt::Debug
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", *self.queue.lock().unwrap())
@@ -59,15 +54,10 @@ pub struct Receiver<T> {
     queue: Arc<Mutex<VecDeque<T>>>,
 }
 
-impl<T> Userdata for Receiver<T>
-where
-    T: Any + Send + Sync + fmt::Debug + Traverseable,
-{
-}
+impl<T> Userdata for Receiver<T> where T: Any + Send + Sync + fmt::Debug + Traverseable {}
 
 impl<T> fmt::Debug for Receiver<T>
-where
-    T: fmt::Debug,
+    where T: fmt::Debug
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", *self.queue.lock().unwrap())
@@ -81,8 +71,7 @@ impl<T> Receiver<T> {
 }
 
 impl<T: VmType> VmType for Sender<T>
-where
-    T::Type: Sized,
+    where T::Type: Sized
 {
     type Type = Sender<T::Type>;
     fn make_type(vm: &Thread) -> ArcType {
@@ -97,8 +86,7 @@ where
 }
 
 impl<T: VmType> VmType for Receiver<T>
-where
-    T::Type: Sized,
+    where T::Type: Sized
 {
     type Type = Receiver<T::Type>;
     fn make_type(vm: &Thread) -> ArcType {
@@ -119,9 +107,8 @@ pub type ChannelRecord<S, R> = record_type!(sender => S, receiver => R);
 
 /// FIXME The dummy `a` argument should not be needed to ensure that the channel can only be used
 /// with a single type
-fn channel(
-    WithVM { vm, .. }: WithVM<Generic<A>>,
-) -> ChannelRecord<Sender<Generic<A>>, Receiver<Generic<A>>> {
+fn channel(WithVM { vm, .. }: WithVM<Generic<A>>)
+           -> ChannelRecord<Sender<Generic<A>>, Receiver<Generic<A>>> {
     let sender = Sender {
         thread: unsafe { GcPtr::from_raw(vm) },
         queue: Arc::new(Mutex::new(VecDeque::new())),
@@ -164,9 +151,7 @@ extern "C" fn resume(vm: &Thread) -> Status {
                 Err(err) => {
                     let fmt = format!("{}", err);
                     let result = unsafe {
-                        Value::String(GcStr::from_utf8_unchecked(
-                            context.alloc_ignore_limit(fmt.as_bytes()),
-                        ))
+                        Value::String(GcStr::from_utf8_unchecked(context.alloc_ignore_limit(fmt.as_bytes())))
                     };
                     context.stack.push(result);
                     Status::Error
@@ -181,9 +166,8 @@ extern "C" fn yield_(_vm: &Thread) -> Status {
     Status::Yield
 }
 
-fn spawn<'vm>(
-    value: WithVM<'vm, Function<&'vm Thread, fn(())>>,
-) -> RuntimeResult<RootedThread, Error> {
+fn spawn<'vm>(value: WithVM<'vm, Function<&'vm Thread, fn(())>>)
+              -> RuntimeResult<RootedThread, Error> {
     match spawn_(value) {
         Ok(x) => RuntimeResult::Return(x),
         Err(err) => RuntimeResult::Panic(err),
@@ -211,17 +195,9 @@ pub fn load<'vm>(vm: &'vm Thread) -> VmResult<()> {
     vm.define_global("channel", primitive!(1 channel))?;
     vm.define_global("recv", primitive!(1 recv))?;
     vm.define_global("send", primitive!(2 send))?;
-    vm.define_global(
-        "resume",
-        primitive::<fn(&'vm Thread) -> Result<(), String>>(
-            "resume",
-            resume,
-        ),
-    )?;
-    vm.define_global(
-        "yield",
-        primitive::<fn(())>("yield", yield_),
-    )?;
+    vm.define_global("resume",
+                       primitive::<fn(&'vm Thread) -> Result<(), String>>("resume", resume))?;
+    vm.define_global("yield", primitive::<fn(())>("yield", yield_))?;
     vm.define_global("spawn", primitive!(1 spawn))?;
     Ok(())
 }
