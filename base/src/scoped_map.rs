@@ -163,9 +163,7 @@ impl<K: Eq + Hash + Clone, V> ScopedMap<K, V> {
     }
 
     pub fn iter(&self) -> Iter<K, V> {
-        Iter {
-            iter: self.map.iter(),
-        }
+        Iter { iter: self.map.iter() }
     }
 }
 

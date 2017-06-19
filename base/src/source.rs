@@ -124,9 +124,7 @@ impl<'a> Source<'a> {
     }
 
     pub fn comments_between(&self, span: Span<BytePos>) -> CommentIter {
-        CommentIter {
-            src: &self.src[span.start.to_usize()..span.end.to_usize()],
-        }
+        CommentIter { src: &self.src[span.start.to_usize()..span.end.to_usize()] }
     }
 }
 

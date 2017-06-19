@@ -6,13 +6,13 @@ use std::collections::VecDeque;
 use base::types::{ArcType, Type};
 
 use {Error, Result as VmResult};
-use api::{primitive, AsyncPushable, Function, Generic, Pushable, RuntimeResult, VmType, WithVM};
+use api::{Generic, VmType, primitive, WithVM, Function, AsyncPushable, Pushable, RuntimeResult};
 use api::generic::A;
-use gc::{Gc, GcPtr, Traverseable};
-use vm::{RootedThread, Status, Thread};
+use gc::{Traverseable, Gc, GcPtr};
+use vm::{Thread, RootedThread, Status};
 use thread::ThreadInternal;
 use value::{GcStr, Userdata, Value};
-use stack::{StackFrame, State};
+use stack::{State, StackFrame};
 
 pub struct Sender<T> {
     // No need to traverse this thread reference as any thread having a reference to this `Sender`
@@ -126,9 +126,7 @@ fn channel(
         thread: unsafe { GcPtr::from_raw(vm) },
         queue: Arc::new(Mutex::new(VecDeque::new())),
     };
-    let receiver = Receiver {
-        queue: sender.queue.clone(),
-    };
+    let receiver = Receiver { queue: sender.queue.clone() };
     record_no_decl!(sender => sender, receiver => receiver)
 }
 

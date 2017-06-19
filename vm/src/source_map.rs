@@ -6,8 +6,7 @@ use base::types::ArcType;
 
 use types::VmIndex;
 
-#[derive(Debug, Default, PartialEq)]
-#[cfg_attr(feature = "serde_derive", derive(Deserialize, Serialize))]
+#[derive(Debug)]
 pub struct SourceMap {
     /// The index of the first instruction for each line
     map: Vec<(usize, Line)>,
@@ -42,7 +41,7 @@ impl SourceMap {
             .unwrap_or(self.map.len());
         if p == 0 ||
             (p == self.map.len() &&
-                instruction_index >= self.map.last().expect("Empty source_map").0)
+                 instruction_index >= self.map.last().expect("Empty source_map").0)
         {
             // instruction_index is not valid in the function
             None
@@ -52,28 +51,18 @@ impl SourceMap {
     }
 }
 
-#[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "serde_derive", derive(DeserializeState, SerializeState))]
-#[cfg_attr(feature = "serde_derive", serde(deserialize_state = "::serialization::DeSeed"))]
-#[cfg_attr(feature = "serde_derive", serde(serialize_state = "::serialization::SeSeed"))]
+#[derive(Debug)]
 pub struct Local {
     start: usize,
     end: usize,
     pub index: VmIndex,
-    #[cfg_attr(feature = "serde_derive",
-               serde(state_with = "::serialization::symbol"))]
     pub name: Symbol,
-    #[cfg_attr(feature = "serde_derive", serde(state_with = "::serialization::borrow"))]
     pub typ: ArcType,
 }
 
-#[derive(Debug, Default, PartialEq)]
-#[cfg_attr(feature = "serde_derive", derive(DeserializeState, SerializeState))]
-#[cfg_attr(feature = "serde_derive", serde(deserialize_state = "::serialization::DeSeed"))]
-#[cfg_attr(feature = "serde_derive", serde(serialize_state = "::serialization::SeSeed"))]
+#[derive(Debug)]
 pub struct LocalMap {
     // Instruction indexes marking [start, end) where the local variable `Symbol` exists
-    #[cfg_attr(feature = "serde_derive", serde(state))]
     map: Vec<Local>,
 }
 

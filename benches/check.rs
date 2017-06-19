@@ -10,9 +10,9 @@ extern crate gluon;
 use std::fs::File;
 use std::io::Read;
 
-use bencher::{black_box, Bencher};
+use bencher::{Bencher, black_box};
 
-use gluon::{new_vm, Compiler};
+use gluon::{Compiler, new_vm};
 use gluon::compiler_pipeline::*;
 
 fn typecheck_prelude(b: &mut Bencher) {

@@ -2,7 +2,7 @@
 extern crate gluon;
 extern crate env_logger;
 
-use gluon::{new_vm, Compiler};
+use gluon::{Compiler, new_vm};
 
 #[test]
 fn regex_match() {

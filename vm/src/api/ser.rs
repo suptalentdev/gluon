@@ -8,7 +8,7 @@ use {Error, Result};
 use api::{Pushable, VmType};
 use interner::InternedStr;
 use thread::{Context, Thread, ThreadInternal};
-use types::{VmIndex, VmTag};
+use types::{VmTag, VmIndex};
 use value::{Def, Value};
 use serde::ser::{self, Serialize};
 

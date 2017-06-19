@@ -8,7 +8,7 @@ use gluon::{new_vm, Compiler, Thread};
 
 use std::io::Read;
 use std::fmt;
-use std::fs::{read_dir, File};
+use std::fs::{File, read_dir};
 use std::path::PathBuf;
 use std::error::Error;
 
@@ -76,8 +76,7 @@ fn main_() -> Result<(), Box<Error>> {
         println!("test {}", name);
         match compiler
             .run_expr_async::<OpaqueValue<&Thread, Hole>>(&vm, name, &text)
-            .sync_or_error()
-        {
+            .sync_or_error() {
             Ok(x) => {
                 return Err(
                     StringError(format!(

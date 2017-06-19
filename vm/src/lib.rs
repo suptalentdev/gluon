@@ -1,6 +1,5 @@
 //! Crate which contain the virtual machine which executes gluon programs
-#![doc(html_root_url = "https://docs.rs/gluon_vm/0.5.0")]
-// # GLUON
+#![doc(html_root_url="https://docs.rs/gluon_vm/0.5.0")] // # GLUON
 #![recursion_limit = "1024"]
 
 #[doc(hidden)]
@@ -22,23 +21,13 @@ extern crate pretty;
 #[macro_use]
 extern crate futures;
 
-#[cfg(feature = "serde_state")]
+#[cfg(feature = "serde")]
 #[macro_use]
-extern crate serde_state as serde;
-#[cfg(feature = "serde_derive")]
-#[macro_use]
-extern crate serde_derive;
-#[cfg(feature = "serde_derive")]
-#[macro_use]
-extern crate serde_derive_state;
+extern crate serde;
 
 #[macro_use]
 extern crate gluon_base as base;
 extern crate gluon_check as check;
-
-#[macro_use]
-#[cfg(feature = "serde")]
-pub mod serialization;
 
 #[macro_use]
 pub mod api;
@@ -134,7 +123,6 @@ quick_error! {
         }
         Message(err: String) {
             display("{}", err)
-            from()
         }
         Panic(err: String) {
             display("{}", err)
@@ -144,6 +132,5 @@ quick_error! {
 
 /// Internal types and functions exposed to the main `gluon` crate
 pub mod internal {
-    pub use value::{ClosureDataDef, Value, ValuePrinter};
-    pub use vm::Global;
+    pub use value::{Value, ClosureDataDef, ValuePrinter};
 }

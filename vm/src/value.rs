@@ -1,6 +1,5 @@
-use std::collections::hash_map::Entry;
 use std::fmt;
-use std::mem::size_of;
+use std::collections::hash_map::Entry;
 use std::result::Result as StdResult;
 
 use itertools::Itertools;
@@ -35,10 +34,16 @@ impl PartialEq for Userdata {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct ClosureData {
     pub function: GcPtr<BytecodeFunction>,
     pub upvars: Array<Value>,
+}
+
+impl PartialEq for ClosureData {
+    fn eq(&self, _: &ClosureData) -> bool {
+        false
+    }
 }
 
 impl Traverseable for ClosureData {
@@ -59,6 +64,7 @@ impl<'b> Traverseable for ClosureDataDef<'b> {
 unsafe impl<'b> DataDef for ClosureDataDef<'b> {
     type Value = ClosureData;
     fn size(&self) -> usize {
+        use std::mem::size_of;
         size_of::<GcPtr<BytecodeFunction>>() + Array::<Value>::size_of(self.1.len())
     }
     fn initialize<'w>(self, mut result: WriteOnly<'w, ClosureData>) -> &'w mut ClosureData {
@@ -82,6 +88,7 @@ impl Traverseable for ClosureInitDef {
 unsafe impl DataDef for ClosureInitDef {
     type Value = ClosureData;
     fn size(&self) -> usize {
+        use std::mem::size_of;
         size_of::<GcPtr<BytecodeFunction>>() + Array::<Value>::size_of(self.1)
     }
     fn initialize<'w>(self, mut result: WriteOnly<'w, ClosureData>) -> &'w mut ClosureData {
@@ -98,25 +105,17 @@ unsafe impl DataDef for ClosureInitDef {
     }
 }
 
-#[derive(Debug, PartialEq)]
-#[cfg_attr(feature = "serde_derive", derive(DeserializeState, SerializeState))]
-#[cfg_attr(feature = "serde_derive", serde(deserialize_state = "::serialization::DeSeed"))]
-#[cfg_attr(feature = "serde_derive", serde(serialize_state = "::serialization::SeSeed"))]
+
+#[derive(Debug)]
 pub struct BytecodeFunction {
-    #[cfg_attr(feature = "serde_derive", serde(state_with = "::serialization::symbol"))]
     pub name: Symbol,
     pub args: VmIndex,
     pub max_stack_size: VmIndex,
     pub instructions: Vec<Instruction>,
-    #[cfg_attr(feature = "serde_derive", serde(state))]
     pub inner_functions: Vec<GcPtr<BytecodeFunction>>,
-    #[cfg_attr(feature = "serde_derive", serde(state))]
     pub strings: Vec<InternedStr>,
-    #[cfg_attr(feature = "serde_derive", serde(state))]
     pub globals: Vec<Value>,
-    #[cfg_attr(feature = "serde_derive", serde(state))]
     pub records: Vec<Vec<InternedStr>>,
-    #[cfg_attr(feature = "serde_derive", serde(state))]
     pub debug_info: DebugInfo,
 }
 
@@ -129,7 +128,7 @@ impl Traverseable for BytecodeFunction {
 
 #[derive(Debug)]
 pub struct DataStruct {
-    tag: VmTag,
+    pub tag: VmTag,
     pub fields: Array<Value>,
 }
 
@@ -145,21 +144,6 @@ impl PartialEq for DataStruct {
     }
 }
 
-
-impl DataStruct {
-    pub fn record_bit() -> VmTag {
-        1 << ((size_of::<VmTag>() * 8) - 1)
-    }
-
-    pub fn tag(&self) -> VmTag {
-        self.tag & !Self::record_bit()
-    }
-
-    pub fn is_record(&self) -> bool {
-        (self.tag & Self::record_bit()) != 0
-    }
-}
-
 /// Definition for data values in the VM
 pub struct Def<'b> {
     pub tag: VmTag,
@@ -168,6 +152,7 @@ pub struct Def<'b> {
 unsafe impl<'b> DataDef for Def<'b> {
     type Value = DataStruct;
     fn size(&self) -> usize {
+        use std::mem::size_of;
         size_of::<usize>() + Array::<Value>::size_of(self.elems.len())
     }
     fn initialize<'w>(self, mut result: WriteOnly<'w, DataStruct>) -> &'w mut DataStruct {
@@ -181,32 +166,6 @@ unsafe impl<'b> DataDef for Def<'b> {
 }
 
 impl<'b> Traverseable for Def<'b> {
-    fn traverse(&self, gc: &mut Gc) {
-        self.elems.traverse(gc);
-    }
-}
-
-pub struct RecordDef<'b> {
-    pub tag: VmTag,
-    pub elems: &'b [Value],
-}
-
-unsafe impl<'b> DataDef for RecordDef<'b> {
-    type Value = DataStruct;
-    fn size(&self) -> usize {
-        size_of::<usize>() + Array::<Value>::size_of(self.elems.len())
-    }
-    fn initialize<'w>(self, mut result: WriteOnly<'w, DataStruct>) -> &'w mut DataStruct {
-        unsafe {
-            let result = &mut *result.as_mut_ptr();
-            result.tag = self.tag | (1 << ((size_of::<VmTag>() * 8) - 1));
-            result.fields.initialize(self.elems.iter().cloned());
-            result
-        }
-    }
-}
-
-impl<'b> Traverseable for RecordDef<'b> {
     fn traverse(&self, gc: &mut Gc) {
         self.elems.traverse(gc);
     }
@@ -275,57 +234,19 @@ mod gc_str {
 pub use self::gc_str::GcStr;
 
 #[derive(Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "serde_derive", derive(DeserializeState, SerializeState))]
-#[cfg_attr(feature = "serde_derive", serde(deserialize_state = "::serialization::DeSeed"))]
-#[cfg_attr(feature = "serde_derive", serde(serialize_state = "::serialization::SeSeed"))]
 pub enum Value {
     Byte(u8),
     Int(VmInt),
     Float(f64),
-    String(
-        #[cfg_attr(feature = "serde_derive", serde(deserialize_state))]
-        GcStr,
-    ),
+    String(GcStr),
     Tag(VmTag),
-    Data(
-        #[cfg_attr(feature = "serde_derive",
-                   serde(deserialize_state_with = "::serialization::gc::deserialize_data"))]
-        #[cfg_attr(feature = "serde_derive", serde(serialize_state))]
-        GcPtr<DataStruct>,
-    ),
-    Array(
-        #[cfg_attr(feature = "serde_derive",
-                   serde(deserialize_state_with = "::serialization::gc::deserialize_array"))]
-        #[cfg_attr(feature = "serde_derive", serde(serialize_state))]
-        GcPtr<ValueArray>,
-    ),
-    Function(
-        #[cfg_attr(feature = "serde_derive", serde(state))]
-        GcPtr<ExternFunction>,
-    ),
-    Closure(
-        #[cfg_attr(feature = "serde_derive", serde(state_with = "::serialization::closure"))]
-        GcPtr<ClosureData>,
-    ),
-    PartialApplication(
-        #[cfg_attr(feature = "serde_derive",
-                   serde(deserialize_state_with = "::serialization::deserialize_application"))]
-        #[cfg_attr(feature = "serde_derive", serde(serialize_state))]
-        GcPtr<PartialApplicationData>,
-    ),
-    // TODO Implement serializing of userdata
-    #[cfg_attr(feature = "serde_derive", serde(skip_deserializing))]
-    Userdata(
-        #[cfg_attr(feature = "serde_derive",
-                   serde(serialize_with = "::serialization::serialize_userdata"))]
-        GcPtr<Box<Userdata>>,
-    ),
-    #[cfg_attr(feature = "serde_derive", serde(skip_deserializing))]
-    #[cfg_attr(feature = "serde_derive", serde(skip_serializing))]
-    Thread(
-        #[cfg_attr(feature = "serde_derive", serde(deserialize_state))]
-        GcPtr<Thread>
-    ),
+    Data(GcPtr<DataStruct>),
+    Array(GcPtr<ValueArray>),
+    Function(GcPtr<ExternFunction>),
+    Closure(GcPtr<ClosureData>),
+    PartialApplication(GcPtr<PartialApplicationData>),
+    Userdata(GcPtr<Box<Userdata>>),
+    Thread(GcPtr<Thread>),
 }
 
 impl Value {
@@ -547,18 +468,9 @@ impl<'a, 't> InternalPrinter<'a, 't> {
 }
 
 #[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "serde_derive", derive(DeserializeState, SerializeState))]
-#[cfg_attr(feature = "serde_derive", serde(deserialize_state = "::serialization::DeSeed"))]
-#[cfg_attr(feature = "serde_derive", serde(serialize_state = "::serialization::SeSeed"))]
 pub enum Callable {
-    Closure(
-        #[cfg_attr(feature = "serde_derive", serde(state_with = "::serialization::closure"))]
-        GcPtr<ClosureData>,
-    ),
-    Extern(
-        #[cfg_attr(feature = "serde_derive", serde(state))]
-        GcPtr<ExternFunction>,
-    ),
+    Closure(GcPtr<ClosureData>),
+    Extern(GcPtr<ExternFunction>),
 }
 
 impl Callable {
@@ -593,12 +505,8 @@ impl Traverseable for Callable {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "serde_derive", derive(SerializeState))]
-#[cfg_attr(feature = "serde_derive", serde(serialize_state = "::serialization::SeSeed"))]
 pub struct PartialApplicationData {
-    #[cfg_attr(feature = "serde_derive", serde(serialize_state))]
     pub function: Callable,
-    #[cfg_attr(feature = "serde_derive", serde(serialize_state))]
     pub args: Array<Value>,
 }
 
@@ -727,14 +635,9 @@ impl fmt::Debug for Value {
     }
 }
 
-#[cfg_attr(feature = "serde_derive", derive(SerializeState))]
-#[cfg_attr(feature = "serde_derive", serde(serialize_state = "::serialization::SeSeed"))]
 pub struct ExternFunction {
-    #[cfg_attr(feature = "serde_derive",
-               serde(serialize_state_with = "::serialization::symbol::serialize"))]
     pub id: Symbol,
     pub args: VmIndex,
-    #[cfg_attr(feature = "serde_derive", serde(skip_serializing))]
     pub function: extern "C" fn(&Thread) -> Status,
 }
 
@@ -749,8 +652,8 @@ impl Clone for ExternFunction {
 }
 
 impl PartialEq for ExternFunction {
-    fn eq(&self, other: &ExternFunction) -> bool {
-        self.id == other.id && self.args == other.args && self.function as usize == other.function as usize
+    fn eq(&self, _: &ExternFunction) -> bool {
+        false
     }
 }
 
@@ -804,16 +707,6 @@ macro_rules! impl_repr {
                     result.unsafe_array_mut::<$id>().initialize(self.iter().cloned());
                     result
                 }
-            }
-        }
-
-        unsafe impl DataDef for Vec<$id> {
-            type Value = ValueArray;
-            fn size(&self) -> usize {
-                DataDef::size(&&self[..])
-            }
-            fn initialize<'w>(self, result: WriteOnly<'w, ValueArray>) -> &'w mut ValueArray {
-                DataDef::initialize(&self[..], result)
             }
         }
         )*
@@ -1352,7 +1245,7 @@ mod tests {
                 name: Symbol::from("Cons"),
                 typ: Type::function(
                     vec![Type::int(), Type::ident(list.clone())],
-                    Type::ident(list.clone()),
+                    Type::ident(list.clone())
                 ),
             },
             Field {

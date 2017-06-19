@@ -10,7 +10,6 @@ macro_rules! pos_struct {
     (#[$doc:meta] pub struct $Pos:ident($T:ty);) => {
         #[$doc]
         #[derive(Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-        #[cfg_attr(feature = "serde_derive", derive(Serialize, Deserialize))]
         pub struct $Pos($T);
 
         impl fmt::Debug for $Pos {

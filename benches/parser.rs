@@ -4,10 +4,9 @@ extern crate bencher;
 extern crate gluon_base as base;
 extern crate gluon_parser as parser;
 
-use bencher::{black_box, Bencher};
+use bencher::{Bencher, black_box};
 
-use base::symbol::{SymbolModule, Symbols};
-use base::types::TypeCache;
+use base::symbol::{Symbols, SymbolModule};
 
 fn prelude(b: &mut Bencher) {
     use std::fs::File;
@@ -20,7 +19,7 @@ fn prelude(b: &mut Bencher) {
     b.iter(|| {
         let mut symbols = Symbols::new();
         let mut symbols = SymbolModule::new("".into(), &mut symbols);
-        let expr = parser::parse_expr(&mut symbols, &TypeCache::new(), &text)
+        let expr = parser::parse_expr(&mut symbols, &text)
             .unwrap_or_else(|err| panic!("{:?}", err));
         black_box(expr)
     })
