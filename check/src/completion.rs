@@ -375,20 +375,14 @@ where
                 self.0.visit_expr(e);
             } else {
                 match e.value {
-                    Expr::TypeBindings(ref type_bindings, ref e) => {
+                    Expr::TypeBindings(ref type_bindings, _) => {
                         for type_binding in type_bindings {
                             self.0.on_found.on_alias(&type_binding.alias.value);
                         }
-                        self.0.visit_expr(e);
                     }
-                    Expr::LetBindings(ref bindings, ref e) => {
-                        for binding in bindings {
-                            self.0.on_found.on_pattern(&binding.name);
-                        }
-                        self.0.visit_expr(e);
-                    }
-                    _ => walk_expr(self, e),
+                    _ => ()
                 }
+                walk_expr(self, e);
             }
         }
     }
