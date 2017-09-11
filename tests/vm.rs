@@ -668,10 +668,10 @@ fn rename_types_after_binding() {
     let _ = ::env_logger::init();
 
     let text = r#"
-let list  = import! "std/list.glu"
+let prelude  = import! "std/prelude.glu"
 in
-let { List } = list
-and { (==) }: Eq (List Int) = list.eq { (==) }
+let { List } = prelude
+and { (==) }: Eq (List Int) = prelude.eq_List { (==) }
 in Cons 1 Nil == Nil
 "#;
     let mut vm = make_vm();
