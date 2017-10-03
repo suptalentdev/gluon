@@ -17,6 +17,7 @@ use std::io::{self, Write};
 
 use gluon::base;
 use gluon::parser;
+use gluon::check;
 use gluon::vm;
 
 use base::error::InFile;

@@ -4,13 +4,12 @@ extern crate env_logger;
 
 extern crate gluon_base as base;
 extern crate gluon_check as check;
-extern crate gluon_completion as completion;
 extern crate gluon_parser as parser;
 
 use base::metadata::Metadata;
 use base::pos::{self, BytePos, Span};
 use base::types::{ArcType, Field, Type};
-use completion::{Suggestion};
+use check::completion::{self, Suggestion};
 
 mod support;
 use support::{intern, typ, MockEnv};

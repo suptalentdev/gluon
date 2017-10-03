@@ -1,6 +1,5 @@
 extern crate env_logger;
 extern crate gluon;
-extern crate gluon_completion as completion;
 
 #[macro_use]
 mod support;
@@ -9,6 +8,7 @@ use support::*;
 
 use gluon::base::pos::BytePos;
 use gluon::base::types::Type;
+use gluon::check::completion;
 use gluon::vm::api::{FunctionRef, Hole, OpaqueValue, ValueRef, IO};
 use gluon::vm::thread::{Thread, ThreadInternal};
 use gluon::vm::internal::Value;

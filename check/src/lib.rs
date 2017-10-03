@@ -22,6 +22,7 @@ pub mod unify;
 pub mod kindcheck;
 pub mod substitution;
 pub mod rename;
+pub mod completion;
 pub mod metadata;
 
 use base::types::{ArcType, TypeEnv};

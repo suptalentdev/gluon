@@ -6,7 +6,6 @@
   cargo test --features test --package gluon_base &&
   cargo test --features test --package gluon_parser &&
   cargo test --features test --package gluon_check &&
-  cargo test --features test --package gluon_completion &&
   cargo test --features test --package gluon_vm &&
   cargo test --features test --package gluon &&
   cargo test --features test --package gluon_repl &&
