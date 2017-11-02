@@ -2010,16 +2010,18 @@ where
     }
 }
 
-pub fn translate_alias<Id, T, U, F>(alias: &AliasData<Id, T>, mut translate: F) -> AliasData<Id, U>
+pub fn translate_alias<Id, T, U>(
+    cache: &TypeCache<Id, U>,
+    alias: &AliasData<Id, T>,
+) -> AliasData<Id, U>
 where
     T: Deref<Target = Type<Id, T>>,
     U: From<Type<Id, U>> + Clone,
     Id: Clone,
-    F: FnMut(&T) -> U,
 {
     AliasData {
         name: alias.name.clone(),
-        typ: translate(&alias.typ),
+        typ: translate_type(cache, &alias.typ),
     }
 }
 
@@ -2029,33 +2031,19 @@ where
     U: From<Type<Id, U>> + Clone,
     Id: Clone,
 {
-    translate_type_with(cache, typ, |t| translate_type(cache, t))
-}
-
-pub fn translate_type_with<Id, T, U, F>(
-    cache: &TypeCache<Id, U>,
-    typ: &Type<Id, T>,
-    mut translate: F,
-) -> U
-where
-    T: Deref<Target = Type<Id, T>>,
-    U: From<Type<Id, U>> + Clone,
-    Id: Clone,
-    F: FnMut(&T) -> U,
-{
     match *typ {
         Type::App(ref f, ref args) => Type::app(
-            translate(f),
-            args.iter().map(|typ| translate(typ)).collect(),
+            translate_type(cache, f),
+            args.iter().map(|typ| translate_type(cache, typ)).collect(),
         ),
-        Type::Record(ref row) => U::from(Type::Record(translate(row))),
-        Type::Variant(ref row) => U::from(Type::Variant(translate(row))),
+        Type::Record(ref row) => U::from(Type::Record(translate_type(cache, row))),
+        Type::Variant(ref row) => U::from(Type::Variant(translate_type(cache, row))),
         Type::Forall(ref params, ref typ, ref skolem) => U::from(Type::Forall(
             params.clone(),
-            translate(typ),
+            translate_type(cache, typ),
             skolem
                 .as_ref()
-                .map(|ts| ts.iter().map(|t| translate(t)).collect()),
+                .map(|ts| ts.iter().map(|t| translate_type(cache, t)).collect()),
         )),
         Type::Skolem(ref skolem) => U::from(Type::Skolem(Skolem {
             name: skolem.name.clone(),
@@ -2072,7 +2060,7 @@ where
                 .map(|field| {
                     Field {
                         name: field.name.clone(),
-                        typ: Alias::from(translate_alias(&field.typ, &mut translate)),
+                        typ: Alias::from(translate_alias(cache, &field.typ)),
                     }
                 })
                 .collect(),
@@ -2081,7 +2069,7 @@ where
                 .map(|field| {
                     Field {
                         name: field.name.clone(),
-                        typ: translate(&field.typ),
+                        typ: translate_type(cache, &field.typ),
                     }
                 })
                 .collect(),
@@ -2097,7 +2085,7 @@ where
         // so this will not be used
         Type::Alias(ref alias) => U::from(Type::Alias(AliasRef {
             index: 0,
-            group: Arc::new(vec![translate_alias(alias, translate)]),
+            group: Arc::new(vec![translate_alias(cache, alias)]),
         })),
         Type::EmptyRow => cache.empty_row(),
     }

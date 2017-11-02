@@ -15,7 +15,6 @@ use base::types::{Alias, AliasData, ArcType, Field, Generic, Type};
 use support::{alias, intern, typ, MockEnv};
 
 #[macro_use]
-#[allow(unused_macros)]
 mod support;
 
 macro_rules! assert_pass {
