@@ -1,6 +1,6 @@
 //! The marshalling api
 use {forget_lifetime, Error, Result, Variants};
-use gc::{DataDef, Gc, GcPtr, Move, Traverseable};
+use gc::{DataDef, Gc, Move, Traverseable};
 use base::symbol::{Symbol, Symbols};
 use base::scoped_map::ScopedMap;
 use stack::StackFrame;
@@ -139,11 +139,10 @@ impl<'a> Data<'a> {
         match self.0 {
             DataInner::Tag(_) => None,
             DataInner::Data(data) => unsafe {
-                GcPtr::from_raw(data)
-                    .get(thread, name)
+                thread
+                    .lookup_field(data, name)
                     .ok()
-                    .and_then(|x| x)
-                    .map(|v| Variants::with_root(*v, data))
+                    .map(|v| Variants::with_root(v, data))
             },
         }
     }
