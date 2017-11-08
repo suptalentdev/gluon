@@ -1,15 +1,15 @@
-let prelude = import! std.prelude
+let prelude = import! "std/prelude.glu"
 let { Functor, Applicative, Alternative, Monad } = prelude
-let { id } = import! std.function
-let { Bool } = import! std.bool
-let char = import! std.char
+let { id } = import! "std/function.glu"
+let { Bool } = import! "std/bool.glu"
+let char = import! "std/char.glu"
 let { (==) } = char.eq
-let { Result } = import! std.result
-let string = import! std.string
+let { Result } = import! "std/result.glu"
+let string = import! "std/string.glu"
 let { (<>) } = prelude.make_Semigroup string.semigroup
-let list = import! std.list
+let list = import! "std/list.glu"
 let { List } = list
-let { Option } = import! std.option
+let { Option } = import! "std/option.glu"
 
 type OffsetString = { start : Int, end : Int, buffer : String }
 type Position = Int
