@@ -204,7 +204,7 @@ fn io_future() {
     }
 
     let expr = r#"
-    let { applicative, monad }  = import! "std/io.glu"
+    let { applicative, monad }  = import! std.io
     monad.flat_map (\x -> applicative.wrap (x + 1)) (test ())
 "#;
 
@@ -237,17 +237,4 @@ fn generic_record_type() {
         type_of(&make_vm(), &record).to_string(),
         "{ test : forall a . a -> () }"
     )
-}
-
-#[test]
-fn tuples_start_at_0() {
-    let thread = make_vm();
-    assert_eq!(
-        <(i32, f64)>::make_type(&thread).to_string(),
-        "{ _0 : Int, _1 : Float }"
-    );
-    assert_eq!(
-        <(i32, f64, String)>::make_type(&thread).to_string(),
-        "{ _0 : Int, _1 : Float, _2 : String }"
-    );
 }
