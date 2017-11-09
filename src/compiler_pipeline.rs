@@ -22,7 +22,7 @@ use base::source::Source;
 use base::symbol::{Name, NameBuf, Symbol, SymbolModule};
 use base::resolve;
 
-use vm::compiler::CompiledModule;
+use vm::compiler::CompiledFunction;
 use vm::future::{BoxFutureValue, FutureValue};
 use vm::macros::MacroExpander;
 use vm::thread::{RootedValue, Thread, ThreadInternal};
@@ -182,7 +182,7 @@ where
 pub struct CompileValue<E> {
     pub expr: E,
     pub typ: ArcType,
-    pub module: CompiledModule,
+    pub function: CompiledFunction,
 }
 
 pub trait Compileable<Extra> {
@@ -233,7 +233,7 @@ where
     ) -> Result<CompileValue<Self::Expr>> {
         use vm::compiler::Compiler;
         debug!("Compile `{}`", filename);
-        let mut module = {
+        let mut function = {
             let env = thread.get_env();
             let name = Name::new(filename);
             let name = NameBuf::from(name.module());
@@ -252,11 +252,11 @@ where
             );
             compiler.compile_expr(self.expr.borrow())?
         };
-        module.function.id = Symbol::from(filename);
+        function.id = Symbol::from(filename);
         Ok(CompileValue {
             expr: self.expr,
             typ: self.typ,
-            module,
+            function: function,
         })
     }
 }
@@ -341,12 +341,12 @@ where
         let CompileValue {
             expr,
             typ,
-            mut module,
+            mut function,
         } = self;
         let run_io = compiler.run_io;
         let module_id = Symbol::from(name);
-        module.function.id = module_id.clone();
-        let closure = try_future!(vm.global_env().new_global_thunk(module));
+        function.id = module_id.clone();
+        let closure = try_future!(vm.global_env().new_global_thunk(function));
         vm.call_thunk(closure)
             .map(|(vm, value)| {
                 ExecuteValue {
@@ -357,12 +357,10 @@ where
                 }
             })
             .map_err(Error::from)
-            .and_then(move |v| {
-                if run_io {
-                    ::compiler_pipeline::run_io(vm, v)
-                } else {
-                    FutureValue::sync(Ok(v)).boxed()
-                }
+            .and_then(move |v| if run_io {
+                ::compiler_pipeline::run_io(vm, v)
+            } else {
+                FutureValue::sync(Ok(v)).boxed()
             })
             .boxed()
     }
@@ -380,12 +378,10 @@ where
         let filename = filename.to_string();
 
         self.run_expr(compiler, vm, &filename, expr_str, ())
-            .and_then(move |v| {
-                if run_io {
-                    ::compiler_pipeline::run_io(vm, v)
-                } else {
-                    FutureValue::sync(Ok(v)).boxed()
-                }
+            .and_then(move |v| if run_io {
+                ::compiler_pipeline::run_io(vm, v)
+            } else {
+                FutureValue::sync(Ok(v)).boxed()
             })
             .and_then(move |mut value| {
                 let (metadata, _) = metadata::metadata(&*vm.get_env(), value.expr.borrow_mut());
@@ -412,10 +408,8 @@ pub struct Precompiled<D>(pub D);
 pub struct Module {
     #[cfg_attr(feature = "serde_derive_state", serde(state_with = "::vm::serialization::borrow"))]
     pub typ: ArcType,
-
     pub metadata: Metadata,
-
-    #[cfg_attr(feature = "serde_derive_state", serde(state))] pub module: CompiledModule,
+    #[cfg_attr(feature = "serde_derive_state", serde(state))] pub function: CompiledFunction,
 }
 
 #[cfg(feature = "serde")]
@@ -440,14 +434,14 @@ where
                 .deserialize(self.0)
                 .map_err(|err| err.to_string())
         );
-        let module_id = module.module.function.id.clone();
+        let module_id = module.function.id.clone();
         if filename != module_id.as_ref() {
             return FutureValue::sync(Err(
                 format!("filenames do not match `{}` != `{}`", filename, module_id).into(),
             )).boxed();
         }
         let typ = module.typ;
-        let closure = try_future!(vm.global_env().new_global_thunk(module.module));
+        let closure = try_future!(vm.global_env().new_global_thunk(module.function));
         vm.call_thunk(closure)
             .map(|(vm, value)| {
                 ExecuteValue {
@@ -508,7 +502,7 @@ where
     let CompileValue {
         expr: _,
         typ,
-        module,
+        function,
     } = self_
         .compile(compiler, thread, file, expr_str, arg)
         .map_err(Error::from)
@@ -516,7 +510,7 @@ where
     let module = Module {
         typ,
         metadata: Metadata::default(),
-        module,
+        function,
     };
     module
         .serialize_state(serializer, &SeSeed::new(thread))

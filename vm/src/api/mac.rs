@@ -53,34 +53,17 @@ macro_rules! named_primitive {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! field_decl_inner {
-    () => {
-    };
-
-    ($field: ident) => {
-        field_decl_inner!{
-            ($field stringify!($field))
-        }
-    };
-    (($alias: ident $field: expr)) => {
+    ($($field: ident),*) => {
+        $(
         #[allow(non_camel_case_types)]
         #[derive(Default)]
-        pub struct $alias;
-        impl $crate::api::record::Field for $alias {
+        pub struct $field;
+        impl $crate::api::record::Field for $field {
             fn name() -> &'static str {
-                $field
+                stringify!($field)
             }
         }
-    };
-
-    ($field: ident, $($rest: tt)*) => {
-        field_decl_inner!{
-            ($field stringify!($field)),
-            $($rest)*
-        }
-    };
-    (($alias: ident $field: expr), $($rest: tt)*) => {
-        field_decl_inner!{ ($alias $field) }
-        field_decl_inner!{$($rest)*}
+        )*
     }
 }
 
@@ -95,40 +78,8 @@ macro_rules! field_decl_inner {
 /// ```
 #[macro_export]
 macro_rules! field_decl {
-    ($($tt: tt)*) => {
-        mod _field { field_decl_inner!($($tt)*); }
-    }
-}
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! field_decl_record {
-    ([$($acc: tt)*]) => {
-        field_decl!($($acc)*);
-    };
-
-    ([ $($acc: tt)* ] $field: ident => $ignore: expr) => {
-        field_decl_record!{
-            [$($acc)* ($field stringify!($field)),]
-        }
-    };
-    ([ $($acc: tt)* ] ($alias: ident $field: expr) => $ignore: expr) => {
-        field_decl_record!{
-            [$($acc)* ($alias $field),]
-        }
-    };
-
-    ([ $($acc: tt)* ] $field: ident => $ignore: expr, $($rest: tt)*) => {
-        field_decl_record!{
-            [$($acc)* ($field stringify!($field)),]
-            $($rest)*
-        }
-    };
-    ([ $($acc: tt)* ] ($alias: ident $field: expr) => $ignore: expr, $($rest: tt)*) => {
-        field_decl_record!{
-            [$($acc)* ($alias $field),]
-            $($rest)*
-        }
+    ($($field: ident),*) => {
+        mod _field { field_decl_inner!($($field),*); }
     }
 }
 
@@ -139,17 +90,9 @@ macro_rules! record_no_decl_inner {
     ($field: ident => $value: expr) => {
         $crate::frunk_core::hlist::h_cons((_field::$field, $value), record_no_decl_inner!())
     };
-    ( ($field: ident $ignore: expr) => $value: expr) => {
-        record_no_decl_inner!($field => $value)
-    };
-    ($field: ident => $value: expr, $($rest: tt)*) => {
-        $crate::frunk_core::hlist::h_cons(
-            (_field::$field, $value),
-            record_no_decl_inner!($($rest)*)
-        )
-    };
-    ( ($field: ident $ignore: expr) => $value: expr, $($rest: tt)*) => {
-        record_no_decl_inner!($field => $value, $($rest)*)
+    ($field: ident => $value: expr, $($field_tail: ident => $value_tail: expr),*) => {
+        $crate::frunk_core::hlist::h_cons((_field::$field, $value),
+                                   record_no_decl_inner!($($field_tail => $value_tail),*))
     };
 }
 
@@ -168,10 +111,10 @@ macro_rules! record_no_decl_inner {
 /// ```
 #[macro_export]
 macro_rules! record_no_decl {
-    ($($tt: tt)*) => {
+    ($($field: ident => $value: expr),*) => {
         {
             $crate::api::Record {
-                fields: record_no_decl_inner!($($tt)*)
+                fields: record_no_decl_inner!($($field => $value),*)
             }
         }
     }
@@ -188,10 +131,12 @@ macro_rules! record_no_decl {
 /// ```
 #[macro_export]
 macro_rules! record {
-    ($($tt: tt)*) => {{
-        field_decl_record!([] $($tt)*);
-        record_no_decl!($($tt)*)
-    }}
+    ($($field: ident => $value: expr),*) => {
+        {
+            field_decl!($($field),*);
+            record_no_decl!($($field => $value),*)
+        }
+    }
 }
 
 #[doc(hidden)]

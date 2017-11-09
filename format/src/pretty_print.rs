@@ -568,34 +568,13 @@ impl<'a: 'e, 'e> Printer<'a, 'e> {
         let arena = self.arena;
         let (arguments, body) = self.pretty_lambda(expr.span.start, expr);
         match expr.value {
-            Expr::Record { .. } => {
-                let opening = arguments;
-                let spaces = self.space_before(expr.span.start);
-                // If there are just spaces between `=`/`->` and the opening brace (`{`) we hang
-                // the opening brace next to the `=` and only indent the body of the record
-                // let x = {
-                //     y,
-                // }
-                // Instead of
-                // let x =
-                //     {
-                //         y,
-                //     }
-                let needs_indent = spaces.1 != arena.space().1;
-                let doc = chain![arena;
-                    chain![arena;
+            Expr::Record { .. } => chain![arena;
                         from,
-                        spaces,
-                        opening
-                    ].group(),
-                    body
-                ].group();
-                if needs_indent {
-                    doc.nest(INDENT)
-                } else {
-                    doc
-                }
-            }
+                        self.space_before(expr.span.start),
+                        arguments
+                    ].group()
+                .append(body)
+                .group(),
             _ => from.append(
                 chain![arena;
                             self.space_before(expr.span.start),
@@ -636,14 +615,12 @@ impl<'a: 'e, 'e> Printer<'a, 'e> {
         self.source
             .comments_between(span)
             .rev()
-            .map(|comment| {
-                if comment.is_empty() {
-                    arena.newline()
-                } else if comment.starts_with("//") {
-                    arena.text(comment).append(arena.newline())
-                } else {
-                    arena.text(comment)
-                }
+            .map(|comment| if comment.is_empty() {
+                arena.newline()
+            } else if comment.starts_with("//") {
+                arena.text(comment).append(arena.newline())
+            } else {
+                arena.text(comment)
             })
             .fold(arena.nil(), |acc, doc| doc.append(acc))
     }

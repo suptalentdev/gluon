@@ -59,7 +59,8 @@ fn main_() -> Result<(), Box<Error>> {
     };
 
     let vm = new_vm();
-    Compiler::new()
+    let mut compiler = Compiler::new();
+    compiler
         .load_file_async(&vm, "std/prelude.glu")
         .sync_or_error()?;
     let mut text = String::new();
@@ -67,8 +68,6 @@ fn main_() -> Result<(), Box<Error>> {
     let iter = test_files("tests/pass")?.into_iter().filter(|filename| {
         filter.map_or(true, |filter| filename.to_string_lossy().contains(filter))
     });
-
-    let mut compiler = Compiler::new();
     for filename in iter {
         let mut file = File::open(&filename)?;
         text.clear();

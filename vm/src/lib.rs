@@ -50,7 +50,6 @@ pub mod dynamic;
 #[macro_use]
 pub mod future;
 pub mod gc;
-pub mod lazy;
 pub mod macros;
 pub mod thread;
 pub mod primitives;
@@ -61,19 +60,18 @@ pub mod types;
 mod array;
 mod field_map;
 mod interner;
+mod lazy;
 mod source_map;
 mod value;
 mod vm;
 
 use std::marker::PhantomData;
 
-use api::{ValueRef, VmType};
+use api::ValueRef;
 use value::Value;
 use types::VmIndex;
 use base::types::ArcType;
 use base::symbol::Symbol;
-use base::metadata::Metadata;
-use thread::{RootedThread, RootedValue, Thread};
 
 unsafe fn forget_lifetime<'a, 'b, T: ?Sized>(x: &'a T) -> &'b T {
     ::std::mem::transmute(x)
@@ -143,29 +141,6 @@ quick_error! {
         }
     }
 }
-
-
-pub type ExternLoader = fn(&Thread) -> Result<ExternModule>;
-
-pub struct ExternModule {
-    pub metadata: Metadata,
-    pub value: RootedValue<RootedThread>,
-    pub typ: ArcType,
-}
-
-impl ExternModule {
-    pub fn new<'vm, T>(thread: &'vm Thread, value: T) -> Result<ExternModule>
-    where
-        T: VmType + api::Pushable<'vm> + Send + Sync,
-    {
-        Ok(ExternModule {
-            value: value.marshal(thread)?,
-            typ: T::make_forall_type(thread),
-            metadata: Metadata::default(),
-        })
-    }
-}
-
 
 /// Internal types and functions exposed to the main `gluon` crate
 pub mod internal {

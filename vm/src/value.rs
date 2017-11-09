@@ -113,6 +113,8 @@ pub struct BytecodeFunction {
     #[cfg_attr(feature = "serde_derive", serde(state))]
     pub strings: Vec<InternedStr>,
     #[cfg_attr(feature = "serde_derive", serde(state))]
+    pub globals: Vec<Value>,
+    #[cfg_attr(feature = "serde_derive", serde(state))]
     pub records: Vec<Vec<InternedStr>>,
     #[cfg_attr(feature = "serde_derive", serde(state))]
     pub debug_info: DebugInfo,
@@ -121,6 +123,7 @@ pub struct BytecodeFunction {
 impl Traverseable for BytecodeFunction {
     fn traverse(&self, gc: &mut Gc) {
         self.inner_functions.traverse(gc);
+        self.globals.traverse(gc);
     }
 }
 
