@@ -24,7 +24,7 @@ use field_map::FieldMap;
 use interner::InternedStr;
 use macros::MacroEnv;
 use api::{Getable, Pushable, VmType};
-use compiler::{CompiledFunction, UpvarInfo};
+use compiler::{CompiledFunction, CompiledModule, UpvarInfo};
 use gc::{DataDef, Gc, GcPtr, Generation, Move};
 use source_map::LocalIter;
 use stack::{Frame, Stack, StackFrame, State};
@@ -227,8 +227,7 @@ pub struct Thread {
     // thread can refer to any value in the parent thread
     #[cfg_attr(feature = "serde_derive", serde(state))] parent: Option<RootedThread>,
     #[cfg_attr(feature = "serde_derive", serde(skip))]
-    roots:
-        RwLock<Vec<GcPtr<Traverseable + Send + Sync>>>,
+    roots: RwLock<Vec<GcPtr<Traverseable + Send + Sync>>>,
     #[cfg_attr(feature = "serde_derive", serde(state))] rooted_values: RwLock<Vec<Value>>,
     /// All threads which this thread have spawned in turn. Necessary as this thread needs to scan
     /// the roots of all its children as well since those may contain references to this threads
@@ -452,13 +451,13 @@ impl Thread {
     ///
     /// ```rust
     /// # extern crate gluon;
-    /// # use gluon::{new_vm,Compiler,RootedThread, Thread};
+    /// # use gluon::{new_vm, Compiler, Thread};
     /// # use gluon::vm::api::{FunctionRef, Hole, OpaqueValue};
     /// # fn main() {
     /// let vm = new_vm();
     /// Compiler::new()
     ///     .run_expr_async::<OpaqueValue<&Thread, Hole>>(&vm, "example",
-    ///         r#" import! "std/int.glu" "#)
+    ///         r#" import! std.int "#)
     ///     .sync_or_error()
     ///     .unwrap_or_else(|err| panic!("{}", err));
     /// let mut add: FunctionRef<fn(i32, i32) -> i32> =
@@ -714,9 +713,14 @@ impl ThreadInternal for Thread {
         instructions: Vec<Instruction>,
     ) -> Result<()> {
         let id = Symbol::from(name);
-        let mut compiled_fn = CompiledFunction::new(args, id.clone(), typ.clone(), "".into());
-        compiled_fn.instructions = instructions;
-        let closure = self.global_env().new_global_thunk(compiled_fn)?;
+        let mut compiled_module = CompiledModule::from(CompiledFunction::new(
+            args,
+            id.clone(),
+            typ.clone(),
+            "".into(),
+        ));
+        compiled_module.function.instructions = instructions;
+        let closure = self.global_env().new_global_thunk(compiled_module)?;
         self.set_global(id, typ, Metadata::default(), Closure(closure))
             .unwrap();
         Ok(())
@@ -987,8 +991,7 @@ pub struct Context {
     max_stack_size: VmIndex,
 
     #[cfg_attr(feature = "serde_derive", serde(skip))]
-    poll_fn:
-        Option<Box<FnMut(&Thread, &mut Context) -> Result<Async<()>> + Send>>,
+    poll_fn: Option<Box<FnMut(&Thread, &mut Context) -> Result<Async<()>> + Send>>,
 }
 
 impl Context {
@@ -1481,7 +1484,7 @@ impl<'b> ExecuteContext<'b> {
             );
         }
         while let Some(&instr) = instructions.get(index) {
-            debug_instruction(&self.stack, index, instr, function);
+            debug_instruction(&self.stack, index, instr);
 
             if self.hook.flags.contains(LINE_FLAG) {
                 if let Some(ref mut hook) = self.hook.function {
@@ -1517,10 +1520,6 @@ impl<'b> ExecuteContext<'b> {
                 PushString(string_index) => {
                     self.stack
                         .push(String(function.strings[string_index as usize].inner()));
-                }
-                PushGlobal(i) => {
-                    let x = function.globals[i as usize];
-                    self.stack.push(x);
                 }
                 PushFloat(f) => self.stack.push(Float(f)),
                 Call(args) => {
@@ -1876,12 +1875,7 @@ where
     stack.stack.push(result);
 }
 
-fn debug_instruction(
-    stack: &StackFrame,
-    index: usize,
-    instr: Instruction,
-    function: &BytecodeFunction,
-) {
+fn debug_instruction(stack: &StackFrame, index: usize, instr: Instruction) {
     debug!(
         "{:?}: {:?} -> {:?} {:?}",
         index,
@@ -1895,7 +1889,6 @@ fn debug_instruction(
                 }
                 x
             }
-            PushGlobal(i) => function.globals.get(i as usize).cloned(),
             NewClosure { .. } | MakeClosure { .. } => Some(Int(stack.len() as isize)),
             _ => None,
         }
