@@ -17,7 +17,7 @@ use base::fnv::{FnvMap, FnvSet};
 use base::resolve;
 use base::kind::{ArcKind, Kind, KindCache, KindEnv};
 use base::merge;
-use base::pos::{self, BytePos, Span, Spanned};
+use base::pos::{BytePos, Span, Spanned};
 use base::symbol::{Symbol, SymbolModule, SymbolRef, Symbols};
 use base::types::{self, Alias, AliasRef, AppVec, ArcType, Field, Generic, PrimitiveEnv,
                   RecordSelector, Skolem, Type, TypeCache, TypeEnv, TypeVariable};
@@ -57,8 +57,6 @@ pub enum TypeError<I> {
     UndefinedRecord { fields: Vec<I> },
     /// Found a case expression without any alternatives
     EmptyCase,
-    /// An `Error` ast node was found indicating an invalid parse
-    ErrorAst(&'static str),
     Message(String),
 }
 
@@ -151,7 +149,6 @@ impl<I: fmt::Display + AsRef<str>> fmt::Display for TypeError<I> {
                 Ok(())
             }
             EmptyCase => write!(f, "`case` expression with no alternatives"),
-            ErrorAst(typ) => write!(f, "`Error` {} found during typechecking", typ),
             Message(ref msg) => write!(f, "{}", msg),
         }
     }
@@ -489,7 +486,6 @@ impl<'a> Typecheck<'a> {
                 DuplicateField(_) |
                 UndefinedRecord { .. } |
                 EmptyCase |
-                ErrorAst(_) |
                 Rename(_) |
                 Message(_) => (),
                 KindError(_, ref mut typ) |
@@ -836,7 +832,7 @@ impl<'a> Typecheck<'a> {
                 Ok(TailCall::Type(typ))
             }
             Expr::TypeBindings(ref mut bindings, ref expr) => {
-                self.typecheck_type_bindings(bindings, expr);
+                self.typecheck_type_bindings(bindings, expr)?;
                 Ok(TailCall::TailCall)
             }
             Expr::Record {
@@ -949,7 +945,9 @@ impl<'a> Typecheck<'a> {
                 }
                 Ok(TailCall::Type(self.typecheck_opt(last, expected_type)))
             }
-            Expr::Error => Err(TypeError::ErrorAst("expression")),
+            Expr::Error(ref typ) => Ok(TailCall::Type(
+                typ.clone().unwrap_or_else(|| self.subs.new_var()),
+            )),
         }
     }
 
@@ -1162,7 +1160,7 @@ impl<'a> Typecheck<'a> {
                 id.typ = match_type.clone();
                 match_type
             }
-            Pattern::Error => self.error(span, TypeError::ErrorAst("pattern")),
+            Pattern::Error => self.subs.new_var(),
         }
     }
 
@@ -1340,7 +1338,7 @@ impl<'a> Typecheck<'a> {
         &mut self,
         bindings: &mut [TypeBinding<Symbol>],
         expr: &SpannedExpr<Symbol>,
-    ) {
+    ) -> TcResult<()> {
         self.enter_scope();
 
         let mut resolved_aliases = Vec::new();
@@ -1402,27 +1400,21 @@ impl<'a> Typecheck<'a> {
             }
 
             // Kindcheck all the types in the environment
-            for (alias, bind) in resolved_aliases.iter_mut().zip(&mut *bindings) {
+            for alias in resolved_aliases.iter_mut() {
                 check.set_variables(alias.params());
                 *alias.unresolved_type_mut() = match **alias.unresolved_type() {
                     Type::Forall(ref args, ref typ, _) => {
                         let mut typ = typ.clone();
-                        if let Err(err) = check
+                        check
                             .kindcheck_type(&mut typ)
-                            .map_err(|err| TypeError::from_kind_error(err, typ.clone()))
-                        {
-                            self.errors.push(pos::spanned(bind.name.span, err));
-                        }
+                            .map_err(|err| TypeError::from_kind_error(err, typ.clone()))?;
                         Type::forall(args.clone(), typ.clone())
                     }
                     _ => {
                         let mut typ = alias.unresolved_type().clone();
-                        if let Err(err) = check
+                        check
                             .kindcheck_type(&mut typ)
-                            .map_err(|err| TypeError::from_kind_error(err, typ.clone()))
-                        {
-                            self.errors.push(pos::spanned(bind.name.span, err));
-                        };
+                            .map_err(|err| TypeError::from_kind_error(err, typ.clone()))?;
                         typ
                     }
                 };
@@ -1455,6 +1447,8 @@ impl<'a> Typecheck<'a> {
                 );
             }
         }
+
+        Ok(())
     }
 
     fn kindcheck(&self, typ: &mut ArcType) -> TcResult<()> {

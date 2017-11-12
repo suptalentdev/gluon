@@ -476,13 +476,6 @@ where
     pub fn params(&self) -> &[Generic<Id>] {
         self.typ.params()
     }
-
-    pub fn aliased_type(&self) -> &T {
-        match *self.typ {
-            Type::Forall(_, ref typ, _) => typ,
-            _ => &self.typ,
-        }
-    }
 }
 
 impl<Id, T> Deref for AliasRef<Id, T> {
@@ -1804,20 +1797,18 @@ where
     dt(Prec::Top, typ).pretty(printer)
 }
 
-pub fn walk_type<'a, I, T, F>(typ: &'a T, mut f: F)
+pub fn walk_type<I, T, F>(typ: &T, mut f: F)
 where
-    F: Walker<'a, T>,
-    T: Deref<Target = Type<I, T>> + 'a,
-    I: 'a,
+    F: FnMut(&T),
+    T: Deref<Target = Type<I, T>>,
 {
     f.walk(typ)
 }
 
-pub fn walk_type_<'a, I, T, F: ?Sized>(typ: &'a T, f: &mut F)
+pub fn walk_type_<I, T, F: ?Sized>(typ: &T, f: &mut F)
 where
-    F: Walker<'a, T>,
-    T: Deref<Target = Type<I, T>> + 'a,
-    I: 'a,
+    F: Walker<T>,
+    T: Deref<Target = Type<I, T>>,
 {
     match **typ {
         Type::Forall(_, ref typ, _) => f.walk(typ),
@@ -1875,8 +1866,8 @@ pub trait TypeVisitor<I, T> {
     }
 }
 
-pub trait Walker<'a, T> {
-    fn walk(&mut self, typ: &'a T);
+pub trait Walker<T> {
+    fn walk(&mut self, typ: &T);
 }
 
 impl<I, T, F: ?Sized> TypeVisitor<I, T> for F
@@ -1895,7 +1886,7 @@ where
 }
 
 /// Wrapper type which allows functions to control how to traverse the members of the type
-pub struct ControlVisitation<F: ?Sized>(pub F);
+pub struct ControlVisitation<F>(pub F);
 
 impl<F, I, T> TypeVisitor<I, T> for ControlVisitation<F>
 where
@@ -1910,23 +1901,12 @@ where
     }
 }
 
-impl<'a, F, T> Walker<'a, T> for ControlVisitation<F>
+impl<I, T, F: ?Sized> Walker<T> for F
 where
-    F: ?Sized + FnMut(&'a T),
-    T: 'a,
+    F: FnMut(&T),
+    T: Deref<Target = Type<I, T>>,
 {
-    fn walk(&mut self, typ: &'a T) {
-        (self.0)(typ)
-    }
-}
-
-impl<'a, I, T, F: ?Sized> Walker<'a, T> for F
-where
-    F: FnMut(&'a T),
-    T: Deref<Target = Type<I, T>> + 'a,
-    I: 'a,
-{
-    fn walk(&mut self, typ: &'a T) {
+    fn walk(&mut self, typ: &T) {
         self(typ);
         walk_type_(typ, self)
     }
