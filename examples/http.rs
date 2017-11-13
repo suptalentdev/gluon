@@ -37,7 +37,7 @@ use futures::sync::mpsc::Sender;
 
 use base::types::{ArcType, Type};
 
-use vm::{Error as VmError, ExternModule, Result as VmResult};
+use vm::{Error as VmError, Result as VmResult};
 
 use vm::thread::ThreadInternal;
 use vm::thread::{Context, RootedThread, Thread};
@@ -45,7 +45,6 @@ use vm::Variants;
 use vm::api::{Function, FunctionRef, FutureResult, Getable, OpaqueValue, PushAsRef, Pushable,
               Userdata, ValueRef, VmType, WithVM, IO};
 use vm::gc::{Gc, Traverseable};
-use gluon::import::add_extern_module;
 
 use vm::internal::Value;
 
@@ -126,7 +125,9 @@ impl<'vm> Getable<'vm> for Wrap<StatusCode> {
 }
 
 // Representation of a http body that is in the prograss of being read
-pub struct Body(Arc<Mutex<Box<Stream<Item = PushAsRef<Chunk, [u8]>, Error = VmError> + Send>>>);
+pub struct Body(
+    Arc<Mutex<Box<Stream<Item = PushAsRef<Chunk, [u8]>, Error = VmError> + Send + 'static>>>,
+);
 
 // By implementing `Userdata` on `Body` it can be automatically pushed and retrieved from gluon
 // threads
@@ -356,15 +357,16 @@ pub fn load_types(vm: &Thread) -> VmResult<()> {
     Ok(())
 }
 
-pub fn load(vm: &Thread) -> VmResult<ExternModule> {
-    ExternModule::new(
-        vm,
+pub fn load(vm: &Thread) -> VmResult<()> {
+    vm.define_global(
+        "http_prim",
         record! {
             listen => primitive!(2 listen),
             read_chunk => primitive!(1 read_chunk),
             write_response => primitive!(2 write_response)
         },
-    )
+    )?;
+    Ok(())
 }
 
 fn main() {
@@ -391,7 +393,7 @@ fn main_() -> Result<(), Box<StdError>> {
     )?;
 
     // Load the primitive functions we define in this module
-    add_extern_module(&thread, "http.prim", load);
+    load(&thread)?;
 
     // Last we run our `http_server.glu` module which returns a function which starts listening
     // on the port we passed from the command line

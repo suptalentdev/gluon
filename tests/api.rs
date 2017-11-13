@@ -9,12 +9,12 @@ use futures::{Future, IntoFuture};
 use futures::future::lazy;
 
 use gluon::base::types::Type;
-use gluon::vm::{Error, ExternModule};
+use gluon::vm::Error;
 use gluon::vm::api::{FunctionRef, FutureResult, Userdata, VmType};
 use gluon::vm::thread::{Root, RootStr, RootedThread, Thread, Traverseable};
 use gluon::vm::types::VmInt;
 use gluon::Compiler;
-use gluon::import::{add_extern_module, Import};
+use gluon::import::Import;
 
 fn load_script(vm: &Thread, filename: &str, input: &str) -> ::gluon::Result<()> {
     Compiler::new()
@@ -37,11 +37,11 @@ fn make_vm() -> RootedThread {
 fn call_function() {
     let _ = ::env_logger::init();
     let add10 = r"
-        let add10 : Int -> Int = \x -> x #Int+ 10 in add10
-    ";
+let add10 : Int -> Int = \x -> x #Int+ 10 in add10
+";
     let mul = r"
-        let mul : Float -> Float -> Float = \x y -> x #Float* y in mul
-    ";
+let mul : Float -> Float -> Float = \x y -> x #Float* y in mul
+";
     let mut vm = make_vm();
     load_script(&mut vm, "add10", &add10).unwrap_or_else(|err| panic!("{}", err));
     load_script(&mut vm, "mul", &mul).unwrap_or_else(|err| panic!("{}", err));
@@ -68,20 +68,15 @@ fn root_data() {
     }
 
     let expr = r#"
-        let test = import! test
-        \x -> test x 1
-    "#;
+\x -> test x 1
+"#;
     let vm = make_vm();
     fn test(r: Root<Test>, i: VmInt) -> VmInt {
         r.0 + i
     }
     vm.register_type::<Test>("Test", &[])
         .unwrap_or_else(|_| panic!("Could not add type"));
-
-    add_extern_module(&vm, "test", |thread| {
-        ExternModule::new(thread, primitive!(2 test))
-    });
-
+    vm.define_global("test", primitive!(2 test)).unwrap();
     load_script(&vm, "script_fn", expr).unwrap_or_else(|err| panic!("{}", err));
     let mut script_fn: FunctionRef<fn(Test) -> VmInt> = vm.get_global("script_fn").unwrap();
     let result = script_fn.call(Test(123)).unwrap();
@@ -93,9 +88,8 @@ fn root_string() {
     let _ = ::env_logger::init();
 
     let expr = r#"
-        let test = import! test
-        test "hello"
-    "#;
+test "hello"
+"#;
     fn test(s: RootStr) -> String {
         let mut result = String::from(&s[..]);
         result.push_str(" world");
@@ -103,9 +97,7 @@ fn root_string() {
     }
 
     let vm = make_vm();
-    add_extern_module(&vm, "test", |thread| {
-        ExternModule::new(thread, primitive!(1 test))
-    });
+    vm.define_global("test", primitive!(1 test)).unwrap();
 
     let result = Compiler::new()
         .run_expr::<String>(&vm, "<top>", expr)
@@ -120,17 +112,15 @@ fn array() {
     let _ = ::env_logger::init();
 
     let expr = r#"
-        let sum_bytes = import! sum_bytes
-        sum_bytes [100b, 42b, 3b, 15b]
-    "#;
+sum_bytes [100b, 42b, 3b, 15b]
+"#;
     fn sum_bytes(s: &[u8]) -> u8 {
         s.iter().fold(0, |acc, b| acc + b)
     }
 
     let vm = make_vm();
-    add_extern_module(&vm, "sum_bytes", |thread| {
-        ExternModule::new(thread, primitive!(1 sum_bytes))
-    });
+    vm.define_global("sum_bytes", primitive!(1 sum_bytes))
+        .unwrap();
 
     let result = Compiler::new()
         .run_expr::<u8>(&vm, "<top>", expr)
@@ -152,14 +142,11 @@ fn return_finished_future() {
     }
 
     let expr = r#"
-        let add = import! add
-        add 1 2
-    "#;
+    add 1 2
+"#;
 
     let vm = make_vm();
-    add_extern_module(&vm, "add", |thread| {
-        ExternModule::new(thread, primitive!(2 add))
-    });
+    vm.define_global("add", primitive!(2 add)).unwrap();
 
     let result = Compiler::new()
         .run_expr::<i32>(&vm, "<top>", expr)
@@ -192,14 +179,11 @@ fn return_delayed_future() {
     }
 
     let expr = r#"
-        let poll_n = import! poll_n
-        poll_n 3
-    "#;
+    poll_n 3
+"#;
 
     let vm = make_vm();
-    add_extern_module(&vm, "poll_n", |thread| {
-        ExternModule::new(thread, primitive!(1 poll_n))
-    });
+    vm.define_global("poll_n", primitive!(1 poll_n)).unwrap();
 
     let result = Compiler::new()
         .run_expr::<i32>(&vm, "<top>", expr)
@@ -220,15 +204,12 @@ fn io_future() {
     }
 
     let expr = r#"
-        let test = import! test
-        let { applicative, monad }  = import! std.io
-        monad.flat_map (\x -> applicative.wrap (x + 1)) (test ())
-    "#;
+    let { applicative, monad }  = import! "std/io.glu"
+    monad.flat_map (\x -> applicative.wrap (x + 1)) (test ())
+"#;
 
     let vm = make_vm();
-    add_extern_module(&vm, "test", |thread| {
-        ExternModule::new(thread, primitive!(1 test))
-    });
+    vm.define_global("test", primitive!(1 test)).unwrap();
 
     let result = Compiler::new()
         .run_io(true)
@@ -256,4 +237,17 @@ fn generic_record_type() {
         type_of(&make_vm(), &record).to_string(),
         "{ test : forall a . a -> () }"
     )
+}
+
+#[test]
+fn tuples_start_at_0() {
+    let thread = make_vm();
+    assert_eq!(
+        <(i32, f64)>::make_type(&thread).to_string(),
+        "{ _0 : Int, _1 : Float }"
+    );
+    assert_eq!(
+        <(i32, f64, String)>::make_type(&thread).to_string(),
+        "{ _0 : Int, _1 : Float, _2 : String }"
+    );
 }

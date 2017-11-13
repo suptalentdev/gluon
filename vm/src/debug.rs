@@ -1,23 +1,18 @@
 use api::generic::A;
 use api::Generic;
 use thread::Thread;
-use {ExternModule, Result};
+use Result;
 
 fn trace(a: Generic<A>) {
     println!("{:?}", a.0);
 }
 
-mod std {
-    pub use debug;
-}
-
-pub fn load(vm: &Thread) -> Result<ExternModule> {
-    use self::std;
-
-    ExternModule::new(
-        vm,
+pub fn load(vm: &Thread) -> Result<()> {
+    vm.define_global(
+        "debug",
         record!{
-            trace => primitive!(1 std::debug::trace)
+            trace => primitive!(1 trace)
         },
-    )
+    )?;
+    Ok(())
 }

@@ -1,10 +1,8 @@
 extern crate gluon;
 use gluon::new_vm;
-use gluon::import::add_extern_module;
-use gluon::vm::ExternModule;
-use gluon::vm::thread::{Status, Thread};
+use gluon::vm::thread::{Thread, Status};
 use gluon::vm::gc::{Gc, Traverseable};
-use gluon::vm::api::{primitive_f, Userdata, VmType};
+use gluon::vm::api::{VmType, Userdata, primitive_f};
 
 #[derive(Debug)]
 struct Test;
@@ -27,8 +25,6 @@ fn f(_: &'static Test) {}
 #[cfg_attr(rustfmt, rustfmt_skip)]
 fn main() {
     let vm = new_vm();
-    add_extern_module(&vm, "test", |vm| {
-        ExternModule::new(vm, unsafe { primitive_f("f", dummy, f as fn (_)) })
-        //~^ cannot infer an appropriate lifetime for lifetime parameter `'vm` due to conflicting requirements
-    });
+    vm.define_global("test", unsafe { primitive_f("f", dummy, f as fn (_)) });
+    //~^ Error `vm` does not live long enough
 }

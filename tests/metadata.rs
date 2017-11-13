@@ -21,7 +21,7 @@ fn metadata_from_other_module() {
     let _ = ::env_logger::init();
     let vm = make_vm();
     let text = r#"
-let { List, of }  = import! std.list
+let { List, of }  = import! "std/list.glu"
 { List, of }
 "#;
     Compiler::new()

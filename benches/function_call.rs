@@ -7,7 +7,7 @@ use bencher::{black_box, Bencher};
 
 use gluon::{new_vm, Compiler};
 use gluon::vm::thread::{Status, Thread};
-use gluon::vm::api::{primitive, FunctionRef, Primitive};
+use gluon::vm::api::{primitive, FunctionRef};
 
 // Benchmarks function calls
 fn factorial(b: &mut Bencher) {
@@ -51,6 +51,9 @@ fn gluon_rust_boundary_overhead(b: &mut Bencher) {
         Status::Ok
     }
 
+    vm.define_global("test_fn", primitive::<fn(i32)>("test_fn", test_fn))
+        .unwrap();
+
     let text = r#"
     let for n f =
         if n #Int== 0 then
@@ -67,14 +70,13 @@ fn gluon_rust_boundary_overhead(b: &mut Bencher) {
             f n
             f n
             for (n #Int- 10) f
-    for
+    \n -> for n test_fn
     "#;
     Compiler::new().load_script(&vm, "test", text).unwrap();
 
-    let mut test: FunctionRef<fn(i32, Primitive<fn(i32)>) -> ()> = vm.get_global("test").unwrap();
+    let mut test: FunctionRef<fn(i32) -> ()> = vm.get_global("test").unwrap();
     b.iter(|| {
-        let result = test.call(1000, primitive::<fn(i32)>("test_fn", test_fn))
-            .unwrap();
+        let result = test.call(1000).unwrap();
         black_box(result)
     })
 }

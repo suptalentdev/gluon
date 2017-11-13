@@ -5,9 +5,8 @@ extern crate gluon_vm;
 
 use gluon::base::types::Type;
 use gluon::vm::api::{FunctionRef, Hole, OpaqueValue};
-use gluon::vm;
 use gluon::{RootedThread, Thread};
-use gluon::import::{add_extern_module, Import};
+use gluon::import::Import;
 use gluon::Compiler;
 
 fn new_vm() -> RootedThread {
@@ -26,7 +25,7 @@ fn access_field_through_alias() {
     let _ = ::env_logger::init();
     let vm = new_vm();
     Compiler::new()
-        .run_expr_async::<OpaqueValue<&Thread, Hole>>(&vm, "example", r#" import! std.int "#)
+        .run_expr_async::<OpaqueValue<&Thread, Hole>>(&vm, "example", r#" import! "std/int.glu" "#)
         .sync_or_error()
         .unwrap();
     let mut add: FunctionRef<fn(i32, i32) -> i32> = vm.get_global("std.int.num.(+)").unwrap();
@@ -45,27 +44,17 @@ fn call_rust_from_gluon() {
             x * factorial(x - 1)
         }
     }
-
-    fn load_factorial(vm: &Thread) -> vm::Result<vm::ExternModule> {
-        vm::ExternModule::new(vm, primitive!(1 factorial))
-    }
-
     let vm = new_vm();
-
-    // Introduce a module that can be loaded with `import! factorial`
-    add_extern_module(&vm, "factorial", load_factorial);
-
-    let expr = r#"
-        let factorial = import! factorial
-        factorial 5
-    "#;
-
-    let (result, _) = Compiler::new()
-        .run_expr_async::<i32>(&vm, "factorial", expr)
-        .sync_or_error()
+    vm.define_global("factorial", primitive!(1 factorial))
         .unwrap();
 
-    assert_eq!(result, 120);
+    let result = Compiler::new()
+        .run_expr_async::<i32>(&vm, "example", "factorial 5")
+        .sync_or_error()
+        .unwrap();
+    let expected = (120, Type::int());
+
+    assert_eq!(result, expected);
 }
 
 #[test]

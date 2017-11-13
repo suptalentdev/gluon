@@ -1,16 +1,15 @@
 //! The marshalling api
 use {forget_lifetime, Error, Result, Variants};
 use gc::{DataDef, Gc, Move, Traverseable};
-use base::symbol::Symbol;
+use base::symbol::{Symbol, Symbols};
 use base::scoped_map::ScopedMap;
 use stack::StackFrame;
 use vm::{self, Root, RootStr, RootedValue, Status, Thread};
 use value::{ArrayDef, ArrayRepr, Cloner, DataStruct, Def, ExternFunction, GcStr, Value, ValueArray};
-use thread::{self, Context, RootedThread, VmRoot};
+use thread::{self, Context, RootedThread};
 use thread::ThreadInternal;
 use base::types::{self, ArcType, Type};
-use types::{Instruction, VmIndex, VmInt, VmTag};
-use compiler::{CompiledFunction, CompiledModule};
+use types::{VmIndex, VmInt, VmTag};
 
 use std::any::Any;
 use std::cell::Ref;
@@ -391,16 +390,6 @@ pub trait Pushable<'vm>: AsyncPushable<'vm> {
     /// to the stack and `Ok(())` should be returned. If the call is unsuccessful `Status:Error`
     /// should be returned and the stack should be left intact
     fn push(self, vm: &'vm Thread, context: &mut Context) -> Result<()>;
-
-    fn marshal<T>(self, vm: &'vm Thread) -> Result<RootedValue<T>>
-    where
-        Self: Sized,
-        T: VmRoot<'vm>,
-    {
-        let mut context = vm.context();
-        self.push(vm, &mut context)?;
-        Ok(vm.root_value(context.stack.pop()))
-    }
 }
 
 /// Trait which allows rust values to be retrieved from the virtual machine
@@ -1229,11 +1218,14 @@ macro_rules! define_tuple {
 
             fn make_type(vm: &Thread) -> ArcType {
                 let type_cache = vm.global_env().type_cache();
-                type_cache.record(Vec::new(),
-                             vec![$(types::Field::new(Symbol::from(stringify!($id)),
-                                                      $id::make_type(vm))),+])
+                type_cache.tuple(
+                    &mut Symbols::new(),
+                    vec![$( $id::make_type(vm) ),+]
+                )
             }
         }
+
+        #[allow(non_snake_case)]
         impl<'vm, $($id: Getable<'vm>),+> Getable<'vm> for ($($id),+) {
             #[allow(unused_assignments)]
             fn from_value(vm: &'vm Thread, value: Variants) -> Option<($($id),+)> {
@@ -1253,6 +1245,8 @@ macro_rules! define_tuple {
                 }
             }
         }
+
+        #[allow(non_snake_case)]
         impl<'vm, $($id),+> Pushable<'vm> for ($($id),+)
         where $($id: Pushable<'vm>),+
         {
@@ -1287,7 +1281,7 @@ macro_rules! define_tuples {
         define_tuples!{ $($rest)+ }
     }
 }
-define_tuples! { _0 _1 _2 _3 _4 _5 _6 }
+define_tuples! { A B C D E F G H I J K L }
 
 
 pub use self::record::Record;
@@ -1839,57 +1833,3 @@ make_vm_function!(A, B, C, D);
 make_vm_function!(A, B, C, D, E);
 make_vm_function!(A, B, C, D, E, F);
 make_vm_function!(A, B, C, D, E, F, G);
-
-
-pub struct TypedBytecode<T> {
-    id: Symbol,
-    args: VmIndex,
-    instructions: Vec<Instruction>,
-    _marker: PhantomData<T>,
-}
-
-
-impl<T> TypedBytecode<T> {
-    pub fn new(name: &str, args: VmIndex, instructions: Vec<Instruction>) -> TypedBytecode<T>
-    where
-        T: VmType,
-    {
-        TypedBytecode {
-            id: Symbol::from(name),
-            args,
-            instructions,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<T: VmType> VmType for TypedBytecode<T> {
-    type Type = T::Type;
-
-    fn make_type(vm: &Thread) -> ArcType {
-        T::make_type(vm)
-    }
-
-    fn make_forall_type(vm: &Thread) -> ArcType {
-        T::make_forall_type(vm)
-    }
-
-    fn extra_args() -> VmIndex {
-        T::extra_args()
-    }
-}
-
-impl<'vm, T: VmType> Pushable<'vm> for TypedBytecode<T> {
-    fn push(self, thread: &'vm Thread, context: &mut Context) -> Result<()> {
-        let mut compiled_module = CompiledModule::from(CompiledFunction::new(
-            self.args,
-            self.id,
-            T::make_forall_type(thread),
-            "".into(),
-        ));
-        compiled_module.function.instructions = self.instructions;
-        let closure = thread.global_env().new_global_thunk(compiled_module)?;
-        context.stack.push(Value::Closure(closure));
-        Ok(())
-    }
-}

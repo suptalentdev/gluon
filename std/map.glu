@@ -1,11 +1,11 @@
-let prelude = import! std.prelude
+let prelude = import! "std/prelude.glu"
 let { Ordering, Ord, Semigroup, Monoid } = prelude
 let { Functor, Applicative, Foldable, Traversable } = prelude
 
-let { flip, const } = import! std.function
-let list = import! std.list
+let { flip, const } = import! "std/function.glu"
+let list = import! "std/list.glu"
 let { List } = list
-let { Option } = import! std.option
+let { Option } = import! "std/option.glu"
 
 type Map k a = | Bin k a (Map k a) (Map k a) | Tip
 
@@ -99,6 +99,7 @@ let make ord : Ord k -> _ =
         foldable,
         traversable,
         singleton,
+        empty,
         find,
         insert,
         map_with_key,

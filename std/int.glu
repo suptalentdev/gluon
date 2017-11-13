@@ -1,6 +1,6 @@
 //@NO-IMPLICIT-PRELUDE
 
-let { Semigroup, Monoid, Group, Eq, Ord, Ordering, Num, Show } = import! std.prelude
+let { Semigroup, Monoid, Group, Eq, Ord, Ordering, Num, Show } = import! "std/prelude.glu"
 
 let additive =
     let semigroup : Semigroup Int = {
@@ -50,7 +50,7 @@ let num = {
 }
 
 let show : Show Int = {
-    show = (import! std.prim).show_int
+    show = prim.show_int
 }
 
 {
@@ -61,5 +61,5 @@ let show : Show Int = {
     num,
     show,
     ..
-    import! std.int.prim
+    int_prim
 }

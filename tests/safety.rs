@@ -11,17 +11,7 @@ use gluon::{Compiler, RootedThread, Thread};
 use support::*;
 
 fn verify_value_cloned(from: &Thread, to: &Thread) {
-    Compiler::new()
-        .run_expr::<()>(&from, "load", r#"let _ = import! std.reference in () "#)
-        .unwrap_or_else(|err| panic!("{}", err));
-    Compiler::new()
-        .run_expr::<()>(&to, "load", r#"let _ = import! std.reference in () "#)
-        .unwrap_or_else(|err| panic!("{}", err));
-
-    let expr = r#"
-        let { ref } = import! std.reference
-        ref 0
-        "#;
+    let expr = r#" ref 0 "#;
 
     let (value, _) = Compiler::new()
         .run_expr_async::<OpaqueValue<RootedThread, Reference<i32>>>(&from, "example", expr)
@@ -30,18 +20,14 @@ fn verify_value_cloned(from: &Thread, to: &Thread) {
 
     // Load the prelude
     type Fn<'t> = FunctionRef<'t, fn(OpaqueValue<RootedThread, Reference<i32>>)>;
-    let store_expr = r#"
-        let { (<-) } = import! std.reference
-        \r -> r <- 1
-        "#;
     let (mut store_1, _) = Compiler::new()
-        .run_expr_async::<Fn>(&to, "store_1", store_expr)
+        .run_expr_async::<Fn>(&to, "store_1", r#"\r -> r <- 1"#)
         .sync_or_error()
-        .unwrap_or_else(|err| panic!("{}", err));
+        .unwrap();
     assert_eq!(store_1.call(value.clone()), Ok(()));
 
     let mut load: FunctionRef<fn(OpaqueValue<RootedThread, Reference<i32>>) -> i32> =
-        from.get_global("std.reference.load").unwrap();
+        from.get_global("load").unwrap();
     assert_eq!(load.call(value), Ok(0));
 }
 

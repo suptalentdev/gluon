@@ -1,12 +1,11 @@
-let prelude = import! std.prelude
+let prelude = import! "std/prelude.glu"
 and { Functor, Applicative } = prelude
-let int = import! std.int
+let int = import! "std/int.glu"
 and { (+) } = int.num
-let list = import! std.list
-let { Bool } = import! std.bool
+let list = import! "std/list.glu"
+let { Bool } = import! "std/bool.glu"
 let { List } = list
-let { Option } = import! std.option
-let { lazy, force } = import! std.lazy
+let { Option } = import! "std/option.glu"
 
 type Stream_ a = | Value a (Stream a) | Empty
 and Stream a = Lazy (Stream_ a)
