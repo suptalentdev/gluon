@@ -40,6 +40,7 @@ pub use vm::thread::{RootedThread, Thread};
 
 pub use futures::Future;
 
+#[cfg(feature = "serialization")]
 use either::Either;
 
 use std::result::Result as StdResult;
@@ -51,7 +52,6 @@ use base::error::{Errors, InFile};
 use base::metadata::Metadata;
 use base::symbol::{Symbol, SymbolModule, Symbols};
 use base::types::{ArcType, TypeCache};
-
 use check::typecheck::TypeError;
 use vm::Variants;
 use vm::api::{Getable, Hole, OpaqueValue, VmType};
@@ -139,15 +139,7 @@ impl From<Errors<Error>> for Error {
         if errors.len() == 1 {
             errors.pop().unwrap()
         } else {
-            errors = errors
-                .into_iter()
-                .flat_map(|err| match err {
-                    Error::Multiple(errors) => Either::Left(errors.into_iter()),
-                    err => Either::Right(Some(err).into_iter()),
-                })
-                .collect();
-
-            Error::Multiple(errors)
+            Error::Multiple(errors.into())
         }
     }
 }
@@ -378,7 +370,7 @@ impl Compiler {
         FutureValue::from(
             import
                 .load_module(self, vm, &mut MacroExpander::new(vm), &module_name)
-                .map_err(|(_, err)| err.into()),
+                .map_err(Error::from),
         ).boxed()
     }
 

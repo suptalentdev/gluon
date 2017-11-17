@@ -17,7 +17,7 @@ use base::fnv::{FnvMap, FnvSet};
 use base::resolve;
 use base::kind::{ArcKind, Kind, KindCache, KindEnv};
 use base::merge;
-use base::pos::{BytePos, Span, Spanned};
+use base::pos::{self, BytePos, Span, Spanned};
 use base::symbol::{Symbol, SymbolModule, SymbolRef, Symbols};
 use base::types::{self, Alias, AliasRef, AppVec, ArcType, Field, Generic, PrimitiveEnv,
                   RecordSelector, Skolem, Type, TypeCache, TypeEnv, TypeVariable};
@@ -44,7 +44,7 @@ pub enum TypeError<I> {
     /// Errors found when trying to unify two types
     Unification(ArcType<I>, ArcType<I>, Vec<UnifyTypeError<I>>),
     /// Error were found when trying to unify the kinds of two types
-    KindError(KindCheckError<I>, ArcType<I>),
+    KindError(KindCheckError<I>),
     /// Errors found during renaming (overload resolution)
     Rename(RenameError),
     /// Multiple types were declared with the same name in the same expression
@@ -57,14 +57,16 @@ pub enum TypeError<I> {
     UndefinedRecord { fields: Vec<I> },
     /// Found a case expression without any alternatives
     EmptyCase,
+    /// An `Error` ast node was found indicating an invalid parse
+    ErrorAst(&'static str),
     Message(String),
 }
 
-impl<I> TypeError<I> {
-    fn from_kind_error(e: KindCheckError<I>, typ: ArcType<I>) -> Self {
+impl<I> From<KindCheckError<I>> for TypeError<I> {
+    fn from(e: KindCheckError<I>) -> Self {
         match e {
             UnifyError::Other(KindError::UndefinedType(name)) => TypeError::UndefinedType(name),
-            e => TypeError::KindError(e, typ),
+            e => TypeError::KindError(e),
         }
     }
 }
@@ -121,11 +123,7 @@ impl<I: fmt::Display + AsRef<str>> fmt::Display for TypeError<I> {
             PatternError(ref typ, expected_len) => {
                 write!(f, "Type {} has {} to few arguments", typ, expected_len)
             }
-            KindError(ref err, ref typ) => {
-                kindcheck::fmt_kind_error(err, f)?;
-                writeln!(f)?;
-                write!(f, "In type {}", typ)
-            }
+            KindError(ref err) => kindcheck::fmt_kind_error(err, f),
             Rename(ref err) => write!(f, "{}", err),
             DuplicateTypeDefinition(ref id) => write!(
                 f,
@@ -149,6 +147,7 @@ impl<I: fmt::Display + AsRef<str>> fmt::Display for TypeError<I> {
                 Ok(())
             }
             EmptyCase => write!(f, "`case` expression with no alternatives"),
+            ErrorAst(typ) => write!(f, "`Error` {} found during typechecking", typ),
             Message(ref msg) => write!(f, "{}", msg),
         }
     }
@@ -486,9 +485,10 @@ impl<'a> Typecheck<'a> {
                 DuplicateField(_) |
                 UndefinedRecord { .. } |
                 EmptyCase |
+                ErrorAst(_) |
                 Rename(_) |
+                KindError(_) |
                 Message(_) => (),
-                KindError(_, ref mut typ) |
                 NotAFunction(ref mut typ) |
                 UndefinedField(ref mut typ, _) |
                 PatternError(ref mut typ, _) |
@@ -832,7 +832,7 @@ impl<'a> Typecheck<'a> {
                 Ok(TailCall::Type(typ))
             }
             Expr::TypeBindings(ref mut bindings, ref expr) => {
-                self.typecheck_type_bindings(bindings, expr)?;
+                self.typecheck_type_bindings(bindings, expr);
                 Ok(TailCall::TailCall)
             }
             Expr::Record {
@@ -945,9 +945,7 @@ impl<'a> Typecheck<'a> {
                 }
                 Ok(TailCall::Type(self.typecheck_opt(last, expected_type)))
             }
-            Expr::Error(ref typ) => Ok(TailCall::Type(
-                typ.clone().unwrap_or_else(|| self.subs.new_var()),
-            )),
+            Expr::Error => Err(TypeError::ErrorAst("expression")),
         }
     }
 
@@ -1160,7 +1158,7 @@ impl<'a> Typecheck<'a> {
                 id.typ = match_type.clone();
                 match_type
             }
-            Pattern::Error => self.subs.new_var(),
+            Pattern::Error => self.error(span, TypeError::ErrorAst("pattern")),
         }
     }
 
@@ -1234,13 +1232,6 @@ impl<'a> Typecheck<'a> {
         self.type_variables.enter_scope();
         let level = self.subs.var_id();
 
-        for bind in bindings.iter_mut() {
-            if let Some(ref typ) = bind.typ {
-                let type_cache = self.type_cache.clone();
-                bind.resolved_type = self.translate_ast_type(&type_cache, typ);
-            }
-        }
-
         let is_recursive = bindings.iter().all(|bind| !bind.args.is_empty());
         // When the definitions are allowed to be mutually recursive
         if is_recursive {
@@ -1261,12 +1252,18 @@ impl<'a> Typecheck<'a> {
                     _ => (),
                 }
                 let typ = {
+                    if let Some(ref mut typ) = bind.typ {
+                        self.kindcheck(typ);
+
+                        let type_cache = self.type_cache.clone();
+                        bind.resolved_type = self.translate_ast_type(&type_cache, typ);
+                    }
+
                     let typ = self.create_unifiable_signature(&bind.resolved_type);
                     if let Some(typ) = typ {
                         bind.resolved_type = typ;
                     }
 
-                    self.kindcheck(&mut bind.resolved_type)?;
                     self.new_skolem_scope_signature(&bind.resolved_type)
                 };
                 self.typecheck_pattern(&mut bind.name, typ);
@@ -1287,12 +1284,17 @@ impl<'a> Typecheck<'a> {
             // Functions which are declared as `let f x = ...` are allowed to be self
             // recursive
             let mut typ = if bind.args.is_empty() {
+                if let Some(ref mut typ) = bind.typ {
+                    self.kindcheck(typ);
+
+                    let type_cache = self.type_cache.clone();
+                    bind.resolved_type = self.translate_ast_type(&type_cache, typ);
+                }
+
                 let typ = self.create_unifiable_signature(&bind.resolved_type);
                 if let Some(typ) = typ {
                     bind.resolved_type = typ;
                 }
-
-                self.kindcheck(&mut bind.resolved_type)?;
 
                 bind.resolved_type = self.new_skolem_scope_signature(&bind.resolved_type);
                 self.typecheck(&mut bind.expr, &bind.resolved_type)
@@ -1338,33 +1340,82 @@ impl<'a> Typecheck<'a> {
         &mut self,
         bindings: &mut [TypeBinding<Symbol>],
         expr: &SpannedExpr<Symbol>,
-    ) -> TcResult<()> {
+    ) {
         self.enter_scope();
 
-        let mut resolved_aliases = Vec::new();
         // Rename the types so they get a name which is distinct from types from other
         // modules
         for bind in bindings.iter_mut() {
+            self.check_undefined_variables(
+                bind.alias.value.params(),
+                bind.alias.value.unresolved_type(),
+            );
+        }
+
+        {
+            let mut check =
+                KindCheck::new(&self.environment, &self.symbols, self.kind_cache.clone());
+
+            // Setup kind variables for all holes and insert the types in the
+            // the type expression into the kindcheck environment
+            for bind in &mut *bindings {
+                // Create the kind for this binding
+                // Test a b : 2 -> 1 -> Type
+                // and bind the same variables to the arguments of the type binding
+                // ('a' and 'b' in the example)
+                let mut id_kind = check.type_kind();
+                for generic in bind.alias
+                    .value
+                    .unresolved_type_mut()
+                    .params_mut()
+                    .iter_mut()
+                    .rev()
+                {
+                    check.instantiate_kinds(&mut generic.kind);
+                    id_kind = Kind::function(generic.kind.clone(), id_kind);
+                }
+                check.add_local(bind.alias.value.name.clone(), id_kind);
+            }
+
+            // Kindcheck all the types in the environment
+            for bind in &mut *bindings {
+                check.set_variables(bind.alias.value.params());
+
+                let typ = bind.alias
+                    .value
+                    .unresolved_type_mut()
+                    .remove_single_forall();
+                if let Err(err) = check.kindcheck_type(typ) {
+                    self.errors.push(pos::spanned(err.span, err.value.into()));
+                }
+            }
+
+            // All kinds are now inferred so replace the kinds store in the AST
+            for bind in &mut *bindings {
+                let typ = bind.alias.value.unresolved_type_mut();
+                check.finalize_type(typ);
+                for arg in typ.params_mut() {
+                    *arg = check.finalize_generic(arg);
+                }
+            }
+        }
+
+        for bind in &mut *bindings {
             let s = String::from(self.symbols.string(&bind.alias.value.name));
             let new = self.symbols.scoped_symbol(&s);
             self.original_symbols
                 .insert(bind.alias.value.name.clone(), new.clone());
             // Rename the aliase's name to its global name
             bind.alias.value.name = new;
+        }
 
-            self.check_undefined_variables(
-                bind.alias.value.params(),
-                bind.alias.value.unresolved_type(),
-            );
-
-            let alias = types::translate_alias(&bind.alias.value, |typ| {
+        let mut resolved_aliases = Vec::new();
+        for bind in &mut *bindings {
+            let mut alias = types::translate_alias(&bind.alias.value, |typ| {
                 let type_cache = self.type_cache.clone();
                 self.translate_ast_type(&type_cache, typ)
             });
-            resolved_aliases.push(alias);
-        }
 
-        for alias in &mut resolved_aliases {
             // alias.unresolved_type() is a dummy in this context
             self.named_variables.extend(
                 alias
@@ -1378,59 +1429,12 @@ impl<'a> Typecheck<'a> {
             if let Some(typ) = replacement {
                 *alias.unresolved_type_mut() = Type::forall(alias.params().to_owned(), typ);
             }
+            resolved_aliases.push(alias);
         }
 
-        {
-            let mut check =
-                KindCheck::new(&self.environment, &self.symbols, self.kind_cache.clone());
-
-            // Setup kind variables for all holes and insert the types in the
-            // the type expression into the kindcheck environment
-            for alias in &mut resolved_aliases {
-                // Create the kind for this binding
-                // Test a b : 2 -> 1 -> Type
-                // and bind the same variables to the arguments of the type binding
-                // ('a' and 'b' in the example)
-                let mut id_kind = check.type_kind();
-                for generic in alias.unresolved_type_mut().params_mut().iter_mut().rev() {
-                    check.instantiate_kinds(&mut generic.kind);
-                    id_kind = Kind::function(generic.kind.clone(), id_kind);
-                }
-                check.add_local(alias.name.clone(), id_kind);
-            }
-
-            // Kindcheck all the types in the environment
-            for alias in resolved_aliases.iter_mut() {
-                check.set_variables(alias.params());
-                *alias.unresolved_type_mut() = match **alias.unresolved_type() {
-                    Type::Forall(ref args, ref typ, _) => {
-                        let mut typ = typ.clone();
-                        check
-                            .kindcheck_type(&mut typ)
-                            .map_err(|err| TypeError::from_kind_error(err, typ.clone()))?;
-                        Type::forall(args.clone(), typ.clone())
-                    }
-                    _ => {
-                        let mut typ = alias.unresolved_type().clone();
-                        check
-                            .kindcheck_type(&mut typ)
-                            .map_err(|err| TypeError::from_kind_error(err, typ.clone()))?;
-                        typ
-                    }
-                };
-            }
-
-            // All kinds are now inferred so replace the kinds store in the AST
-            for alias in resolved_aliases.iter_mut() {
-                *alias.unresolved_type_mut() = check.finalize_type(alias.unresolved_type().clone());
-                for arg in alias.unresolved_type_mut().params_mut() {
-                    *arg = check.finalize_generic(arg);
-                }
-            }
-            let alias_group = Alias::group(resolved_aliases);
-            for (bind, alias) in bindings.iter_mut().zip(alias_group) {
-                bind.finalized_alias = Some(alias);
-            }
+        let alias_group = Alias::group(resolved_aliases);
+        for (bind, alias) in bindings.iter_mut().zip(alias_group) {
+            bind.finalized_alias = Some(alias);
         }
 
         // Finally insert the declared types into the global scope
@@ -1447,16 +1451,17 @@ impl<'a> Typecheck<'a> {
                 );
             }
         }
-
-        Ok(())
     }
 
-    fn kindcheck(&self, typ: &mut ArcType) -> TcResult<()> {
-        let mut check = KindCheck::new(&self.environment, &self.symbols, self.kind_cache.clone());
-        check
-            .kindcheck_type(typ)
-            .map_err(|err| TypeError::from_kind_error(err, typ.clone()))?;
-        Ok(())
+    fn kindcheck(&mut self, typ: &mut AstType<Symbol>) {
+        let result = {
+            let mut check =
+                KindCheck::new(&self.environment, &self.symbols, self.kind_cache.clone());
+            check.kindcheck_type(typ)
+        };
+        if let Err(err) = result {
+            self.errors.push(pos::spanned(err.span, err.value.into()));
+        }
     }
 
 

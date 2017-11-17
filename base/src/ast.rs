@@ -1,11 +1,11 @@
 //! Module containing the types which make up `gluon`'s AST (Abstract Syntax Tree)
 use std::fmt;
 use std::marker::PhantomData;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 use pos::{self, BytePos, HasSpan, Span, Spanned};
 use symbol::Symbol;
-use types::{self, Alias, AliasData, ArcType, Type, TypeEnv};
+use types::{self, Alias, AliasData, ArcType, Generic, Type, TypeEnv};
 
 pub trait DisplayEnv {
     type Ident;
@@ -67,6 +67,12 @@ impl<Id> Deref for AstType<Id> {
     }
 }
 
+impl<Id> DerefMut for AstType<Id> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self._typ.1.value
+    }
+}
+
 impl<Id: AsRef<str>> fmt::Display for AstType<Id> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", types::TypeFormatter::new(self))
@@ -118,6 +124,21 @@ impl<Id> AstType<Id> {
 
     pub fn into_inner(self) -> Type<Id, Self> {
         self._typ.1.value
+    }
+
+    pub fn params_mut(&mut self) -> &mut [Generic<Id>] {
+        match self._typ.1.value {
+            Type::Forall(ref mut params, _, _) => params,
+            Type::App(ref mut id, _) => id.params_mut(),
+            _ => &mut [],
+        }
+    }
+
+    pub fn remove_single_forall(&mut self) -> &mut AstType<Id> {
+        match self._typ.1.value {
+            Type::Forall(_, ref mut typ, _) => return typ,
+            _ => self,
+        }
     }
 }
 
@@ -269,10 +290,7 @@ pub enum Expr<Id> {
     /// A group of sequenced expressions
     Block(Vec<SpannedExpr<Id>>),
     /// An invalid expression
-    Error(
-        /// Provides a hint of what type the expression would have, if any
-        Option<ArcType<Id>>,
-    ),
+    Error,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -409,7 +427,7 @@ pub fn walk_mut_expr<V: ?Sized + MutVisitor>(v: &mut V, e: &mut SpannedExpr<V::I
         }
         Expr::TypeBindings(_, ref mut expr) => v.visit_expr(expr),
         Expr::Ident(ref mut id) => v.visit_ident(id),
-        Expr::Literal(..) | Expr::Error(..) => (),
+        Expr::Literal(..) | Expr::Error => (),
     }
 }
 
@@ -532,7 +550,7 @@ pub fn walk_expr<'a, V: ?Sized + Visitor<'a>>(v: &mut V, e: &'a SpannedExpr<V::I
         }
         Expr::TypeBindings(_, ref expr) => v.visit_expr(expr),
         Expr::Ident(ref id) => v.visit_typ(&id.typ),
-        Expr::Literal(..) | Expr::Error(..) => (),
+        Expr::Literal(..) | Expr::Error => (),
     }
 }
 
@@ -627,7 +645,7 @@ impl Typed for Expr<Symbol> {
             Expr::Array(ref array) => array.typ.clone(),
             Expr::Lambda(ref lambda) => lambda.id.typ.clone(),
             Expr::Block(ref exprs) => exprs.last().expect("Expr in block").env_type_of(env),
-            Expr::Error(ref typ) => typ.clone().unwrap_or_else(|| Type::hole()),
+            Expr::Error => Type::hole(),
         }
     }
 }
