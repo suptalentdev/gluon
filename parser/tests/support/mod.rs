@@ -222,7 +222,7 @@ pub fn array(fields: Vec<SpExpr>) -> SpExpr {
 }
 
 pub fn error() -> SpExpr {
-    no_loc(Expr::Error(None))
+    no_loc(Expr::Error)
 }
 
 pub fn alias<Id>(
