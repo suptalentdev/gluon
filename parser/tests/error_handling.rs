@@ -8,7 +8,7 @@ extern crate gluon_parser as parser;
 mod support;
 
 use base::ast::{Pattern, PatternField, TypedIdent};
-use base::pos::{self, BytePos, Span, Spanned};
+use base::pos::{self, BytePos, Spanned};
 use base::types::Type;
 
 use parser::{Error, ParseErrors, TokenizeError};
@@ -23,7 +23,6 @@ fn remove_expected(errors: ParseErrors) -> ParseErrors {
             Error::UnexpectedEof(ref mut expected) => expected.clear(),
             _ => (),
         }
-        err.span = Span::default();
         err
     };
     ParseErrors::from(errors.into_iter().map(f).collect::<Vec<_>>())
@@ -58,15 +57,15 @@ fn missing_match_expr() {
     assert!(result.is_err());
     let (expr, err) = result.unwrap_err();
     assert_eq!(
-        clear_span(expr.unwrap()),
-        case(
+        expr,
+        Some(case(
             error(),
             vec![(Pattern::Ident(TypedIdent::new(intern("x"))), id("x"))],
-        )
+        ),)
     );
 
     let error = Error::UnexpectedToken("With".into(), vec![]);
-    let span = pos::span(BytePos::from(0), BytePos::from(0));
+    let span = pos::span(BytePos::from(11), BytePos::from(15));
     assert_eq!(
         remove_expected(err),
         ParseErrors::from(vec![pos::spanned(span, error)])
@@ -87,10 +86,10 @@ y
 "#,
     );
     let error = Error::UnexpectedToken("IntLiteral".into(), vec![]);
-    let span = pos::span(BytePos::from(0), BytePos::from(0));
+    let span = pos::span(BytePos::from(32), BytePos::from(32));
     let errors = ParseErrors::from(vec![pos::spanned(span, error)]);
 
-    assert_eq!(remove_expected(result.unwrap_err().1), errors);
+    assert_eq!(result.map_err(|(_, err)| remove_expected(err)), Err(errors));
 }
 
 #[test]
@@ -119,7 +118,7 @@ fn tokenizer_error_is_returned() {
     let span = pos::span(BytePos::from(0), BytePos::from(0));
     let errors = ParseErrors::from(vec![pos::spanned(span, error)]);
 
-    assert_eq!(remove_expected(result.unwrap_err().1), errors);
+    assert_eq!(result.map_err(|(_, err)| err), Err(errors));
 }
 
 #[test]
@@ -136,7 +135,7 @@ fn tokenizer_error_at_eof_is_returned() {
     let span = pos::span(BytePos::from(0), BytePos::from(0));
     let errors = ParseErrors::from(vec![pos::spanned(span, error)]);
 
-    assert_eq!(remove_expected(result.unwrap_err().1), errors);
+    assert_eq!(result.map_err(|(_, err)| err), Err(errors));
 }
 
 #[test]
@@ -166,10 +165,10 @@ fn missing_pattern() {
     let result = parse(expr);
     assert!(result.is_err());
     let (expr, err) = result.unwrap_err();
-    assert_eq!(clear_span(expr.unwrap()), case(int(1), vec![(Pattern::Error, id("x"))]));
+    assert_eq!(expr, Some(case(int(1), vec![(Pattern::Error, id("x"))])));
 
     let error = Error::UnexpectedToken("RArrow".into(), vec![]);
-    let span = pos::span(BytePos::from(0), BytePos::from(0));
+    let span = pos::span(BytePos::from(24), BytePos::from(26));
     assert_eq!(
         remove_expected(err),
         ParseErrors::from(vec![pos::spanned(span, error)])
@@ -187,10 +186,10 @@ fn incomplete_alternative() {
     let result = parse(expr);
     assert!(result.is_err());
     let (expr, err) = result.unwrap_err();
-    assert_eq!(clear_span(expr.unwrap()), case(int(1), vec![(Pattern::Error, error())]));
+    assert_eq!(expr, Some(case(int(1), vec![(Pattern::Error, error())])));
 
     let error = Error::UnexpectedToken("CloseBlock".into(), vec![]);
-    let span = pos::span(BytePos::from(0), BytePos::from(0));
+    let span = pos::span(BytePos::from(24), BytePos::from(26));
     assert_eq!(
         remove_expected(err),
         ParseErrors::from(vec![pos::spanned(span, error)])
@@ -210,18 +209,18 @@ fn incomplete_alternative_before_complete_alternative() {
     assert!(result.is_err());
     let (expr, err) = result.unwrap_err();
     assert_eq!(
-        clear_span(expr.unwrap()),
-        case(
+        expr,
+        Some(case(
             int(1),
             vec![
                 (Pattern::Error, error()),
                 (Pattern::Ident(TypedIdent::new(intern("x"))), id("x")),
             ],
-        )
+        ),)
     );
 
     let error = Error::UnexpectedToken("Pipe".into(), vec![]);
-    let span = pos::span(BytePos::from(0), BytePos::from(0));
+    let span = pos::span(BytePos::from(24), BytePos::from(24));
     assert_eq!(
         remove_expected(err),
         ParseErrors::from(vec![pos::spanned(span, error)])
@@ -240,8 +239,8 @@ fn incomplete_alternative_with_partial_pattern() {
     assert!(result.is_err());
     let (expr, err) = result.unwrap_err();
     assert_eq!(
-        clear_span(expr.unwrap()),
-        case(
+        expr,
+        Some(case(
             int(1),
             vec![
                 (
@@ -258,7 +257,7 @@ fn incomplete_alternative_with_partial_pattern() {
                     error(),
                 ),
             ],
-        )
+        ),)
     );
 
     let errors = vec![
