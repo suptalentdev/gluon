@@ -36,7 +36,6 @@ impl PartialEq for Userdata {
 }
 
 #[derive(Debug, PartialEq)]
-#[repr(C)]
 pub struct ClosureData {
     pub function: GcPtr<BytecodeFunction>,
     pub upvars: Array<Value>,
@@ -111,9 +110,12 @@ pub struct BytecodeFunction {
     pub instructions: Vec<Instruction>,
     #[cfg_attr(feature = "serde_derive", serde(state))]
     pub inner_functions: Vec<GcPtr<BytecodeFunction>>,
-    #[cfg_attr(feature = "serde_derive", serde(state))] pub strings: Vec<InternedStr>,
-    #[cfg_attr(feature = "serde_derive", serde(state))] pub records: Vec<Vec<InternedStr>>,
-    #[cfg_attr(feature = "serde_derive", serde(state))] pub debug_info: DebugInfo,
+    #[cfg_attr(feature = "serde_derive", serde(state))]
+    pub strings: Vec<InternedStr>,
+    #[cfg_attr(feature = "serde_derive", serde(state))]
+    pub records: Vec<Vec<InternedStr>>,
+    #[cfg_attr(feature = "serde_derive", serde(state))]
+    pub debug_info: DebugInfo,
 }
 
 impl Traverseable for BytecodeFunction {
@@ -123,7 +125,6 @@ impl Traverseable for BytecodeFunction {
 }
 
 #[derive(Debug)]
-#[repr(C)]
 pub struct DataStruct {
     tag: VmTag,
     pub fields: Array<Value>,
@@ -278,7 +279,10 @@ pub enum Value {
     Byte(u8),
     Int(VmInt),
     Float(f64),
-    String(#[cfg_attr(feature = "serde_derive", serde(deserialize_state))] GcStr),
+    String(
+        #[cfg_attr(feature = "serde_derive", serde(deserialize_state))]
+        GcStr,
+    ),
     Tag(VmTag),
     Data(
         #[cfg_attr(feature = "serde_derive",
@@ -292,7 +296,10 @@ pub enum Value {
         #[cfg_attr(feature = "serde_derive", serde(serialize_state))]
         GcPtr<ValueArray>,
     ),
-    Function(#[cfg_attr(feature = "serde_derive", serde(state))] GcPtr<ExternFunction>),
+    Function(
+        #[cfg_attr(feature = "serde_derive", serde(state))]
+        GcPtr<ExternFunction>,
+    ),
     Closure(
         #[cfg_attr(feature = "serde_derive", serde(state_with = "::serialization::closure"))]
         GcPtr<ClosureData>,
@@ -312,7 +319,10 @@ pub enum Value {
     ),
     #[cfg_attr(feature = "serde_derive", serde(skip_deserializing))]
     #[cfg_attr(feature = "serde_derive", serde(skip_serializing))]
-    Thread(#[cfg_attr(feature = "serde_derive", serde(deserialize_state))] GcPtr<Thread>),
+    Thread(
+        #[cfg_attr(feature = "serde_derive", serde(deserialize_state))]
+        GcPtr<Thread>,
+    ),
 }
 
 impl Value {
@@ -439,22 +449,7 @@ impl<'a, 't> InternalPrinter<'a, 't> {
             Value::Userdata(ref data) => arena.text(format!("{:?}", data)),
             Value::Thread(thread) => arena.text(format!("{:?}", thread)),
             Value::Byte(b) => arena.text(format!("{}", b)),
-            Value::Int(i) => {
-                use base::types::BuiltinType;
-                match **self.typ {
-                    Type::Builtin(BuiltinType::Int) => arena.text(format!("{}", i)),
-                    Type::Builtin(BuiltinType::Char) =>
-                        match ::std::char::from_u32(i as u32) {
-                            Some('"') => arena.text(format!("'{}'", '"')),
-                            Some(c) => arena.text(format!("'{}'", c.escape_default())),
-                            None => ice!(
-                                "Invalid character (code point {}) passed to pretty printing",
-                                i
-                                ),
-                        },
-                    _ => arena.text(format!("{}", i)),
-                }
-            },
+            Value::Int(i) => arena.text(format!("{}", i)),
             Value::Float(f) => arena.text(format!("{}", f)),
         }
     }
@@ -546,7 +541,10 @@ pub enum Callable {
         #[cfg_attr(feature = "serde_derive", serde(state_with = "::serialization::closure"))]
         GcPtr<ClosureData>,
     ),
-    Extern(#[cfg_attr(feature = "serde_derive", serde(state))] GcPtr<ExternFunction>),
+    Extern(
+        #[cfg_attr(feature = "serde_derive", serde(state))]
+        GcPtr<ExternFunction>,
+    ),
 }
 
 impl Callable {
@@ -575,18 +573,19 @@ impl Traverseable for Callable {
     fn traverse(&self, gc: &mut Gc) {
         match *self {
             Callable::Closure(ref closure) => closure.traverse(gc),
-            Callable::Extern(ref ext) => ext.traverse(gc),
+            Callable::Extern(_) => (),
         }
     }
 }
 
 #[derive(Debug)]
-#[repr(C)]
 #[cfg_attr(feature = "serde_derive", derive(SerializeState))]
 #[cfg_attr(feature = "serde_derive", serde(serialize_state = "::serialization::SeSeed"))]
 pub struct PartialApplicationData {
-    #[cfg_attr(feature = "serde_derive", serde(serialize_state))] pub function: Callable,
-    #[cfg_attr(feature = "serde_derive", serde(serialize_state))] pub args: Array<Value>,
+    #[cfg_attr(feature = "serde_derive", serde(serialize_state))]
+    pub function: Callable,
+    #[cfg_attr(feature = "serde_derive", serde(serialize_state))]
+    pub args: Array<Value>,
 }
 
 impl PartialEq for PartialApplicationData {
@@ -735,8 +734,8 @@ impl Clone for ExternFunction {
 
 impl PartialEq for ExternFunction {
     fn eq(&self, other: &ExternFunction) -> bool {
-        self.id == other.id && self.args == other.args
-            && self.function as usize == other.function as usize
+        self.id == other.id && self.args == other.args &&
+            self.function as usize == other.function as usize
     }
 }
 
@@ -866,7 +865,7 @@ macro_rules! on_array {
     }
 }
 
-#[repr(C)]
+
 pub struct ValueArray {
     repr: Repr,
     array: Array<()>,
@@ -1384,20 +1383,5 @@ mod tests {
             format!("{}", ValuePrinter::new(&env, &typ, nil)),
             "[1, 2, 3]"
         );
-    }
-
-    #[test]
-    fn closure_data_upvars_location() {
-        use std::mem;
-        use std::ptr;
-
-        unsafe {
-            let p: *const ClosureData = ptr::null();
-            assert_eq!(p as *const u8, &(*p).function as *const _ as *const u8);
-            assert_eq!(
-                (p as *const u8).offset(mem::size_of::<*const ()>() as isize),
-                &(*p).upvars as *const _ as *const u8
-            );
-        }
     }
 }
