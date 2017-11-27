@@ -69,7 +69,6 @@ fn run_file<'t>(
 
 fn main_() -> Result<(), Box<Error>> {
     let _ = ::env_logger::init();
-
     let args: Vec<_> = ::std::env::args().collect();
     let filter = if args.len() > 1 && args.last().unwrap() != "main" {
         args.last()
@@ -78,13 +77,6 @@ fn main_() -> Result<(), Box<Error>> {
     };
 
     let vm = new_vm();
-    let import = vm.get_macros().get("import");
-    let import = import
-        .as_ref()
-        .and_then(|import| import.downcast_ref::<gluon::import::Import>())
-        .unwrap();
-    import.add_path("..");
-
     Compiler::new()
         .load_file_async(&vm, "std/prelude.glu")
         .sync_or_error()?;
