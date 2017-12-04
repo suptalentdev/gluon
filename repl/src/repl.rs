@@ -45,9 +45,10 @@ fn find_kind(args: WithVM<RootStr>) -> IO<Result<String, String>> {
     let args = args.value.trim();
     IO::Value(match vm.find_type_info(args) {
         Ok(ref alias) => {
-            let kind = alias.params().iter().rev().fold(Kind::typ(), |acc, arg| {
-                Kind::function(arg.kind.clone(), acc)
-            });
+            let kind = alias.params().iter().rev().fold(
+                Kind::typ(),
+                |acc, arg| Kind::function(arg.kind.clone(), acc),
+            );
             Ok(format!("{}", kind))
         }
         Err(err) => Err(format!("{}", err)),
@@ -108,16 +109,21 @@ fn complete(thread: &Thread, name: &str, fileinput: &str, pos: usize) -> GluonRe
             Err((Some(expr), err)) => (expr, Err(err.into())),
         };
 
+    expr.expand_macro(&mut compiler, thread, &name)
+        .map_err(|(_, err)| err)?;
+
     // Only need the typechecker to fill infer the types as best it can regardless of errors
-    let _ = expr.typecheck(&mut compiler, thread, &name, fileinput);
+    let _ = compiler.typecheck_expr(thread, &name, fileinput, &mut expr);
     let suggestions = completion::suggest(&*thread.get_env(), &expr, BytePos::from(pos));
-    Ok(suggestions
-        .into_iter()
-        .map(|ident| {
-            let s: &str = ident.name.as_ref();
-            s.to_string()
-        })
-        .collect())
+    Ok(
+        suggestions
+            .into_iter()
+            .map(|ident| {
+                let s: &str = ident.name.as_ref();
+                s.to_string()
+            })
+            .collect(),
+    )
 }
 
 struct Completer(RootedThread);
@@ -314,8 +320,7 @@ pub fn run() -> Result<(), Box<StdError + Send + Sync>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
+    use super::compile_repl;
     use vm::api::{FunctionRef, IO};
     use gluon::{self, RootedThread};
     use gluon::import::Import;
@@ -381,13 +386,5 @@ mod tests {
             Ok(IO::Value(Ok(_))) => (),
             x => assert!(false, "{:?}", x),
         }
-    }
-
-    #[test]
-    fn complete_repl_empty() {
-        let _ = ::env_logger::init();
-        let vm = new_vm();
-        compile_repl(&vm).unwrap_or_else(|err| panic!("{}", err));
-        complete(&vm, "<repl>", "", 0).unwrap_or_else(|err| panic!("{}", err));
     }
 }
