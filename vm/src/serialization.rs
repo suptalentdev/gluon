@@ -54,6 +54,7 @@ impl AsMut<NodeMap> for DeSeed {
     }
 }
 
+
 pub struct SeSeed {
     node_to_id: ::base::serialization::SeSeed,
 }
@@ -203,6 +204,7 @@ pub mod gc {
         Record(#[serde(state_with = "::base::serialization::shared")] S),
         Data(VmTag),
     }
+
 
     impl SerializeState<SeSeed> for DataStruct {
         fn serialize_state<S>(&self, serializer: S, seed: &SeSeed) -> Result<S::Ok, S::Error>
@@ -608,6 +610,7 @@ where
         deserializer,
     )
 }
+
 
 struct DataDefSeed<T>(PhantomData<T>);
 

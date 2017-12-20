@@ -169,6 +169,7 @@ pub struct Gc {
     generation: Generation,
 }
 
+
 /// Trait which creates a typed pointer from a *mut () pointer.
 /// For `Sized` types this is just a cast but for unsized types some more metadata must be taken
 /// from the provided `D` value to make it initialize correctly.
@@ -232,6 +233,7 @@ struct GcHeader {
     value_size: usize,
     type_info: *const TypeInfo,
 }
+
 
 struct AllocPtr {
     ptr: *mut GcHeader,
@@ -586,6 +588,7 @@ where
     }
 }
 
+
 impl Gc {
     /// Constructs a new garbage collector
     pub fn new(generation: Generation, memory_limit: usize) -> Gc {
@@ -826,6 +829,7 @@ impl Gc {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -855,6 +859,8 @@ mod tests {
         }
     }
 
+
+
     fn object_count(gc: &Gc) -> usize {
         let mut header: &GcHeader = match gc.values {
             Some(ref x) => &**x,
@@ -872,6 +878,7 @@ mod tests {
         }
         count
     }
+
 
     #[derive(Copy, Clone)]
     struct Data_ {

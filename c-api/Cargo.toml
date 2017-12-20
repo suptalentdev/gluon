@@ -11,16 +11,13 @@ repository = "https://github.com/gluon-lang/gluon"
 documentation = "https://docs.rs/gluon"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["staticlib"]
 
 [dependencies]
 libc = "0.2.14"
-gluon = { version = "0.7.0", path = "..", default-features = false } # GLUON
+gluon = { version = "0.7.0", path = ".." } # GLUON
 
 [features]
-default = ["c_void", "gluon/default"]
-
 test = ["gluon/test"]
 nightly = ["gluon/nightly"]
 skeptic = ["gluon/skeptic"]
-c_void = []

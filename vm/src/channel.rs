@@ -59,6 +59,7 @@ impl<T: Traverseable> Traverseable for Receiver<T> {
     }
 }
 
+
 pub struct Receiver<T> {
     queue: Arc<Mutex<VecDeque<T>>>,
 }
@@ -117,6 +118,7 @@ where
 }
 
 field_decl!{ sender, receiver }
+
 
 pub type ChannelRecord<S, R> = record_type!(sender => S, receiver => R);
 
@@ -212,15 +214,6 @@ fn spawn_<'vm>(value: WithVM<'vm, Function<&'vm Thread, fn(())>>) -> VmResult<Ro
 
 type Action = fn(()) -> OpaqueValue<RootedThread, IO<Generic<A>>>;
 
-#[cfg(not(feature = "tokio_core"))]
-fn spawn_on<'vm>(
-    thread: RootedThread,
-    action: WithVM<'vm, FunctionRef<Action>>,
-) -> IO<OpaqueValue<&'vm Thread, IO<Generic<A>>>> {
-    IO::Exception("spawn_on requires the `tokio_core` crate".to_string())
-}
-
-#[cfg(feature = "tokio_core")]
 fn spawn_on<'vm>(
     thread: RootedThread,
     action: WithVM<'vm, FunctionRef<Action>>,
@@ -246,6 +239,7 @@ fn spawn_on<'vm>(
     impl<F> VmType for SpawnFuture<F> {
         type Type = Generic<A>;
     }
+
 
     fn push_future_wrapper<G>(vm: &Thread, context: &mut OwnedContext, _: &G)
     where
@@ -284,8 +278,9 @@ fn spawn_on<'vm>(
     use value::PartialApplicationDataDef;
 
     let WithVM { vm, value: action } = action;
-    let mut action =
-        unsafe { OwnedFunction::<Action>::from_value(&thread, Variants::new(&action.value())) };
+    let mut action = unsafe {
+        OwnedFunction::<Action>::from_value(&thread, Variants::new(&action.value()))
+    };
 
     let future = oneshot::spawn_fn(
         move || action.call_async(()),

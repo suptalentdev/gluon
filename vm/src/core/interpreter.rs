@@ -499,11 +499,13 @@ impl<'a, 'e> Compiler<'a, 'e> {
                                         return None;
                                     }
                                 };
-                                let new_body = new_body.map(|expr| Closure {
-                                    pos: closure.pos,
-                                    name: closure.name.clone(),
-                                    args: closure.args.clone(),
-                                    expr: expr.into_local(self.allocator),
+                                let new_body = new_body.map(|expr| {
+                                    Closure {
+                                        pos: closure.pos,
+                                        name: closure.name.clone(),
+                                        args: closure.args.clone(),
+                                        expr: expr.into_local(self.allocator),
+                                    }
                                 });
 
                                 function.exit_scope();
@@ -878,6 +880,7 @@ mod tests {
             "let f x y = (#Int+) x y in { f }",
         ).unwrap();
         let global: CExpr = global_allocator.arena.alloc(global);
+
 
         let expr = r#"
             let g y = (match global with | { f } -> f end) 2 y in

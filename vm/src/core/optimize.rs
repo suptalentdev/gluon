@@ -68,6 +68,7 @@ impl<'a, 'b> Visitor<'a, 'b> for DifferentLifetime<'a, 'b> {
     }
 }
 
+
 pub trait Visitor<'a, 'b> {
     type Producer: ExprProducer<'a, 'b>;
 
@@ -260,9 +261,11 @@ where
                 &alts,
                 |a| {
                     let a = a.iter()
-                        .map(|a| Alternative {
-                            pattern: a.pattern.clone(),
-                            expr: V::Producer::new(visitor.allocator()).produce(a.expr),
+                        .map(|a| {
+                            Alternative {
+                                pattern: a.pattern.clone(),
+                                expr: V::Producer::new(visitor.allocator()).produce(a.expr),
+                            }
                         })
                         .collect::<Vec<_>>();
                     visitor.allocator().alternative_arena.alloc_extend(a)
@@ -274,6 +277,7 @@ where
     }
 }
 
+
 fn walk_bind<'a, 'b, V>(visitor: &mut V, bind: &LetBinding<'b>) -> Option<LetBinding<'a>>
 where
     V: ?Sized + Visitor<'a, 'b>,
@@ -283,26 +287,32 @@ where
         Named::Recursive(ref closures) => merge_iter(
             closures,
             |closure| {
-                visitor.visit_expr(closure.expr).map(|new_expr| Closure {
+                visitor.visit_expr(closure.expr).map(|new_expr| {
+                    Closure {
+                        pos: closure.pos,
+                        name: closure.name.clone(),
+                        args: closure.args.clone(),
+                        expr: new_expr,
+                    }
+                })
+            },
+            |closure| {
+                Closure {
                     pos: closure.pos,
                     name: closure.name.clone(),
                     args: closure.args.clone(),
-                    expr: new_expr,
-                })
-            },
-            |closure| Closure {
-                pos: closure.pos,
-                name: closure.name.clone(),
-                args: closure.args.clone(),
-                expr: V::Producer::new(allocator.expect("Allocator")).produce(closure.expr),
+                    expr: V::Producer::new(allocator.expect("Allocator")).produce(closure.expr),
+                }
             },
         ).map(Named::Recursive),
         Named::Expr(bind_expr) => visitor.visit_expr(bind_expr).map(Named::Expr),
     };
-    new_named.map(|named| LetBinding {
-        name: bind.name.clone(),
-        expr: named,
-        span_start: bind.span_start,
+    new_named.map(|named| {
+        LetBinding {
+            name: bind.name.clone(),
+            expr: named,
+            span_start: bind.span_start,
+        }
     })
 }
 
@@ -311,11 +321,14 @@ where
     V: ?Sized + Visitor<'a, 'b>,
 {
     let new_expr = visitor.visit_expr(alt.expr);
-    new_expr.map(|expr| Alternative {
-        pattern: alt.pattern.clone(),
-        expr: expr,
+    new_expr.map(|expr| {
+        Alternative {
+            pattern: alt.pattern.clone(),
+            expr: expr,
+        }
     })
 }
+
 
 #[cfg(test)]
 mod tests {

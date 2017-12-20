@@ -19,7 +19,6 @@ extern crate mopa;
 extern crate pretty;
 #[macro_use]
 extern crate quick_error;
-#[cfg(feature = "tokio_core")]
 extern crate tokio_core;
 #[doc(hidden)]
 pub extern crate frunk_core;
@@ -148,6 +147,7 @@ quick_error! {
     }
 }
 
+
 pub type ExternLoader = fn(&Thread) -> Result<ExternModule>;
 
 pub struct ExternModule {
@@ -168,6 +168,7 @@ impl ExternModule {
         })
     }
 }
+
 
 /// Internal types and functions exposed to the main `gluon` crate
 pub mod internal {

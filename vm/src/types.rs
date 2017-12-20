@@ -116,6 +116,7 @@ pub enum Instruction {
     FloatEQ,
 }
 
+
 impl Instruction {
     /// Returns by how much the stack is adjusted when executing the instruction `self`.
     pub fn adjust(&self) -> i32 {

@@ -17,6 +17,7 @@ use base::pos::{self, BytePos, Span};
 use base::symbol::Symbol;
 use base::types::ArcType;
 
+
 use vm::{ExternLoader, ExternModule};
 use vm::macros::{Error as MacroError, Macro, MacroExpander};
 use vm::thread::{Thread, ThreadInternal};
@@ -405,6 +406,7 @@ fn get_state<'m>(macros: &'m mut MacroExpander) -> &'m mut State {
         .downcast_mut::<State>()
         .unwrap()
 }
+
 
 struct State {
     visited: Vec<String>,

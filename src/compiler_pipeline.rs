@@ -30,6 +30,7 @@ use vm::thread::{Execute, RootedValue, Thread, ThreadInternal, VmRoot};
 
 use {Compiler, Error, Result};
 
+
 fn execute<T, F>(vm: T, f: F) -> FutureValue<Execute<T>>
 where
     T: Deref<Target = Thread>,
@@ -437,11 +438,13 @@ where
 
         let vm1 = vm.clone();
         execute(vm1, |vm| vm.call_thunk(closure))
-            .map(|(vm, value)| ExecuteValue {
-                id: module_id,
-                expr: expr,
-                typ: typ,
-                value: vm.root_value_with_self(value),
+            .map(|(vm, value)| {
+                ExecuteValue {
+                    id: module_id,
+                    expr: expr,
+                    typ: typ,
+                    value: vm.root_value_with_self(value),
+                }
             })
             .map_err(Error::from)
             .and_then(move |v| {
@@ -534,7 +537,8 @@ where
         if filename != module_id.as_ref() {
             return FutureValue::sync(Err(format!(
                 "filenames do not match `{}` != `{}`",
-                filename, module_id
+                filename,
+                module_id
             ).into()))
                 .boxed();
         }
@@ -542,11 +546,13 @@ where
         let vm1 = vm.clone();
         let closure = try_future!(vm.global_env().new_global_thunk(module.module));
         execute(vm1, |vm| vm.call_thunk(closure))
-            .map(|(vm, value)| ExecuteValue {
-                id: module_id,
-                expr: (),
-                typ: typ,
-                value: vm.root_value_with_self(value),
+            .map(|(vm, value)| {
+                ExecuteValue {
+                    id: module_id,
+                    expr: (),
+                    typ: typ,
+                    value: vm.root_value_with_self(value),
+                }
             })
             .map_err(Error::from)
             .boxed()
@@ -636,6 +642,7 @@ where
             typ,
             value,
         } = v;
+
 
         let vm1 = vm.clone();
         execute(vm1, |vm| vm.execute_io(*value))
