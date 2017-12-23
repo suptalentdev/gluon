@@ -390,10 +390,9 @@ macro_rules! assert_multi_unify_err {
                                     }
                                     None => {
                                         assert!(false,
-                                            "Found {} errors but expected {} than expected at {}.\n\
+                                            "Found {} less errors than expected at {}.\n\
                                             Errors:\n{}\nbut expected {}",
-                                            errors.len(),
-                                            expected_count,
+                                            expected_count - errors.len(),
                                             i,
                                             error,
                                             stringify!($id)
