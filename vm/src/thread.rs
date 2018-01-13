@@ -28,7 +28,7 @@ use gc::{DataDef, Gc, GcPtr, Generation, Move};
 use source_map::LocalIter;
 use stack::{Frame, Lock, Stack, StackFrame, State};
 use types::*;
-use vm::{GlobalVmState, VmEnv};
+use vm::{GlobalVmState, GlobalVmStateBuilder, VmEnv};
 use value::{BytecodeFunction, Callable, ClosureData, ClosureDataDef, ClosureInitDef, Def,
             ExternFunction, GcStr, PartialApplicationDataDef, RecordDef, Userdata, Value};
 
@@ -197,7 +197,6 @@ impl<'vm> Deref for RootStr<'vm> {
         &self.0
     }
 }
-
 
 struct Roots<'b> {
     vm: GcPtr<Thread>,
@@ -393,11 +392,10 @@ impl Traverseable for RootedThread {
 impl RootedThread {
     /// Creates a new virtual machine with an empty global environment
     pub fn new() -> RootedThread {
-        RootedThread::with_event_loop(None)
+        RootedThread::with_global_state(GlobalVmStateBuilder::default().build())
     }
 
-    pub fn with_event_loop(event_loop: Option<::tokio_core::reactor::Remote>) -> RootedThread {
-        let mut global_state = GlobalVmState::new(event_loop);
+    pub fn with_global_state(mut global_state: GlobalVmState) -> RootedThread {
         let thread = Thread {
             parent: None,
             context: Mutex::new(Context::new(
@@ -557,9 +555,7 @@ impl Thread {
         // Finally check that type of the returned value is correct
         let expected = T::make_type(self);
         if check_signature(&*env, &expected, &actual) {
-            unsafe {
-                Ok(T::from_value(self, Variants::new(&value)))
-            }
+            unsafe { Ok(T::from_value(self, Variants::new(&value))) }
         } else {
             Err(Error::WrongType(expected, actual.into_owned()))
         }
@@ -650,10 +646,14 @@ impl Thread {
     {
         // For this to be safe we require that the received stack is the same one that is in this
         // VM
-        assert!(unsafe {
-            context as *const _ as usize >= &self.context as *const _ as usize
-                && context as *const _ as usize <= (&self.context as *const _).offset(1) as usize
-        });
+        {
+            let self_context: *const _ = &self.context;
+            let context: *const _ = context;
+            assert!(unsafe {
+                context as usize >= self_context as usize
+                    && context as usize <= self_context.offset(1) as usize
+            });
+        }
         let roots = Roots {
             vm: unsafe {
                 // Threads must only be on the garbage collectors heap which makes this safe
@@ -690,7 +690,6 @@ impl<'a> VmRoot<'a> for RootedThread {
     }
 }
 
-
 /// Internal functions for interacting with threads. These functions should be considered both
 /// unsafe and unstable.
 pub trait ThreadInternal
@@ -710,7 +709,6 @@ where
     fn root_value<'vm, T>(&'vm self, value: Value) -> RootedValue<T>
     where
         T: VmRoot<'vm>;
-
 
     /// Evaluates a zero argument function (a thunk)
     fn call_thunk(&self, closure: GcPtr<ClosureData>) -> FutureValue<Execute<&Self>>;
@@ -1948,7 +1946,6 @@ where
 {
     binop(vm, stack, |l, r| Value::Tag(if f(l, r) { 1 } else { 0 }))
 }
-
 
 #[inline]
 fn binop<'b, F, T>(vm: &'b Thread, stack: &mut StackFrame<'b>, f: F)
