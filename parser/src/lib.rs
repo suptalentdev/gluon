@@ -10,7 +10,6 @@ extern crate itertools;
 extern crate lalrpop_util;
 #[macro_use]
 extern crate log;
-extern crate ordered_float;
 extern crate pretty;
 #[macro_use]
 extern crate quick_error;

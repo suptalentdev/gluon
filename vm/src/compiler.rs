@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 use interner::InternedStr;
-use base::ast::{self, DisplayEnv, Literal, Typed, TypedIdent};
+use base::ast::{DisplayEnv, Literal, Typed, TypedIdent};
 use base::resolve;
 use base::kind::{ArcKind, KindEnv};
 use base::types::{self, Alias, ArcType, BuiltinType, RecordSelector, Type, TypeEnv};
@@ -183,14 +183,16 @@ impl FunctionEnvs {
             let upvars_are_globals = self.envs.len() == 1;
             if !upvars_are_globals {
                 let function = &mut **self;
-                function.function.debug_info.upvars.extend(
-                    function.free_vars.iter().map(|&(ref name, ref typ)| {
+                function
+                    .function
+                    .debug_info
+                    .upvars
+                    .extend(function.free_vars.iter().map(|&(ref name, ref typ)| {
                         UpvarInfo {
                             name: name.declared_name().to_string(),
                             typ: typ.clone(),
                         }
-                    }),
-                );
+                    }));
             }
         }
 
@@ -553,9 +555,10 @@ impl<'a> Compiler<'a> {
             // Zero argument constructors can be compiled as integers
             Constructor(tag, 0) => function.emit(Construct { tag: tag, args: 0 }),
             Constructor(..) => {
-                return Err(Error::Message(
-                    format!("Constructor `{}` is not fully applied", id),
-                ))
+                return Err(Error::Message(format!(
+                    "Constructor `{}` is not fully applied",
+                    id
+                )))
             }
         }
         Ok(())
@@ -602,7 +605,7 @@ impl<'a> Compiler<'a> {
             Expr::Const(ref lit, _) => match *lit {
                 Literal::Int(i) => function.emit(PushInt(i as isize)),
                 Literal::Byte(b) => function.emit(PushByte(b)),
-                Literal::Float(f) => function.emit(PushFloat(f.into_inner())),
+                Literal::Float(f) => function.emit(PushFloat(f)),
                 Literal::String(ref s) => function.emit_string(self.intern(&s)?),
                 Literal::Char(c) => function.emit(PushInt(c as isize)),
             },
@@ -716,43 +719,9 @@ impl<'a> Compiler<'a> {
                         Pattern::Record { .. } => {
                             start_jumps.push(function.function.instructions.len());
                         }
-                        Pattern::Ident(_) => {
+                        _ => {
                             start_jumps.push(function.function.instructions.len());
                             function.emit(Jump(0));
-                        }
-                        Pattern::Literal(ref l) => {
-                            let lhs_i = function.stack_size() - 1;
-                            match *l {
-                                ast::Literal::Byte(b) => {
-                                    function.emit(Push(lhs_i));
-                                    function.emit(PushByte(b));
-                                    function.emit(ByteEQ);
-                                }
-                                ast::Literal::Int(i) => {
-                                    function.emit(Push(lhs_i));
-                                    function.emit(PushInt(i as isize));
-                                    function.emit(IntEQ);
-                                }
-                                ast::Literal::Char(ch) => {
-                                    function.emit(Push(lhs_i));
-                                    function.emit(PushInt(ch as isize));
-                                    function.emit(IntEQ);
-                                }
-                                ast::Literal::Float(f) => {
-                                    function.emit(Push(lhs_i));
-                                    function.emit(PushFloat(f.into_inner()));
-                                    function.emit(FloatEQ);
-                                }
-                                ast::Literal::String(ref s) => {
-                                    self.load_identifier(&Symbol::from("@string_eq"), function)?;
-                                    let lhs_i = function.stack_size() - 2;
-                                    function.emit(Push(lhs_i));
-                                    function.emit_string(self.intern(&s)?);
-                                    function.emit(Call(2));
-                                }
-                            };
-                            start_jumps.push(function.function.instructions.len());
-                            function.emit(CJump(0));
                         }
                     }
                 }
@@ -779,12 +748,6 @@ impl<'a> Compiler<'a> {
                             function.function.instructions[start_index] =
                                 Jump(function.function.instructions.len() as VmIndex);
                             function.new_stack_var(self, id.name.clone(), id.typ.clone());
-                        }
-                        Pattern::Literal(_) => {
-                            function.function.instructions[start_index] =
-                                CJump(function.function.instructions.len() as VmIndex);
-                            // Add a dummy variable to mark where the literal itself is stored
-                            function.new_stack_var(self, self.empty_symbol.clone(), Type::hole());
                         }
                     }
                     self.compile(&alt.expr, function, tail_position)?;
@@ -968,7 +931,6 @@ impl<'a> Compiler<'a> {
                 }
             }
             Pattern::Constructor(..) => ice!("constructor pattern in let"),
-            Pattern::Literal(_) => ice!("literal pattern in let"),
         }
         Ok(())
     }

@@ -573,7 +573,6 @@ impl<'a, 'e> Compiler<'a, 'e> {
                         Pattern::Ident(ref id) => {
                             function.push_stack_var(self, id.name.clone(), expr);
                         }
-                        Pattern::Literal(_) => (),
                     }
                     let new_expr = self.compile(&alt.expr, function)?
                         .unwrap_or(Reduced::Local(&alt.expr));
@@ -663,7 +662,6 @@ impl<'a, 'e> Compiler<'a, 'e> {
                 }
             }
             Pattern::Constructor(..) => ice!("constructor pattern in let"),
-            Pattern::Literal(..) => ice!("literal pattern in let"),
         }
         Ok(())
     }
