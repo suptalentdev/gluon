@@ -12,7 +12,6 @@ extern crate pretty;
 extern crate quick_error;
 extern crate smallvec;
 
-extern crate ordered_float;
 #[cfg(feature = "serde_derive")]
 #[macro_use]
 extern crate serde_derive;
