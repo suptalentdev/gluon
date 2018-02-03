@@ -21,13 +21,14 @@ lalrpop-util = "0.13.1"
 log = "0.3.6"
 pretty = "0.3.2"
 gluon_base = { path = "../base", version = "0.7.0" } # GLUON
+ordered-float = "0.5.0" # gluon_base
 
 [dev-dependencies]
 difference = "1.0"
 pretty_assertions = "0.4"
 
 [build-dependencies]
-lalrpop = "0.13.1"
+lalrpop = "0.14.0"
 
 [features]
 test = ["env_logger"]

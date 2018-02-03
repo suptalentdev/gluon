@@ -597,7 +597,7 @@ macro_rules! int_impls {
             fn from_value(_: &'vm Thread, value: Variants) -> Self {
                 match value.as_ref() {
                     ValueRef::Int(i) => i as $id,
-                    _ => ice!("ValueRef is not an Int"),
+                    _ => ice!("expected ValueRef to be an Int, got {:?}", value.as_ref()),
                 }
             }
         }
@@ -733,7 +733,10 @@ impl<'vm> Getable<'vm> for char {
                 Some(ch) => ch,
                 None => ice!("Failed conversion from Int to char for: {}", x),
             },
-            _ => ice!("ValueRef is not an Int"),
+            _ => ice!(
+                "expected ValueRef to be an Int (char), got {:?}",
+                value.as_ref()
+            ),
         }
     }
 }
