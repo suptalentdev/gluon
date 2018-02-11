@@ -38,7 +38,7 @@ pub fn parse_new(
     let symbols = get_local_interner();
     let mut symbols = symbols.borrow_mut();
     let mut module = SymbolModule::new("test".into(), &mut symbols);
-    parse_partial_expr(&mut module, &TypeCache::new(), s)
+    parse_partial_expr(&mut module, &TypeCache::new(), &s)
 }
 
 pub struct MockEnv {
@@ -73,7 +73,7 @@ impl KindEnv for MockEnv {
 impl TypeEnv for MockEnv {
     fn find_type(&self, id: &SymbolRef) -> Option<&ArcType> {
         match id.definition_name() {
-            "False" | "True" => Some(self.bool.as_type()),
+            "False" | "True" => Some(&self.bool.as_type()),
             // Just need a dummy type that is not `Type::hole` to verify that lookups work
             "std.prelude" => Some(&self.int),
             _ => None,
@@ -98,7 +98,7 @@ impl TypeEnv for MockEnv {
 
 impl PrimitiveEnv for MockEnv {
     fn get_bool(&self) -> &ArcType {
-        self.bool.as_type()
+        &self.bool.as_type()
     }
 }
 
@@ -143,7 +143,8 @@ pub fn typecheck_partial_expr(
     Result<ArcType, InFile<typecheck::HelpError<Symbol>>>,
 ) {
     let mut expr = match parse_new(text) {
-        Ok(e) | Err((Some(e), _)) => e,
+        Ok(e) => e,
+        Err((Some(e), _)) => e,
         Err((None, err)) => panic!("{}", err),
     };
 
@@ -158,7 +159,7 @@ pub fn typecheck_partial_expr(
 }
 
 pub fn typ(s: &str) -> ArcType {
-    assert!(!s.is_empty());
+    assert!(s.len() != 0);
     typ_a(s, Vec::new())
 }
 
@@ -166,14 +167,14 @@ pub fn typ_a<T>(s: &str, args: Vec<T>) -> T
 where
     T: From<Type<Symbol, T>>,
 {
-    assert!(!s.is_empty());
+    assert!(s.len() != 0);
 
     match s.parse() {
         Ok(b) => Type::builtin(b),
         Err(()) if s.starts_with(char::is_lowercase) => {
             Type::generic(Generic::new(intern(s), Kind::typ()))
         }
-        Err(()) => if args.is_empty() {
+        Err(()) => if args.len() == 0 {
             Type::ident(intern(s))
         } else {
             Type::app(Type::ident(intern(s)), args.into_iter().collect())
