@@ -11,7 +11,6 @@ extern crate itertools;
 #[macro_use]
 extern crate log;
 extern crate pretty;
-extern crate strsim;
 extern crate union_find;
 
 #[macro_use]

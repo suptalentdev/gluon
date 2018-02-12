@@ -20,8 +20,8 @@ use base::kind::{ArcKind, Kind, KindCache, KindEnv};
 use base::merge;
 use base::pos::{self, BytePos, Span, Spanned};
 use base::symbol::{Symbol, SymbolModule, SymbolRef, Symbols};
-use base::types::{self, Alias, AliasRef, AppVec, ArcType, Field, Filter, Generic, PrimitiveEnv,
-                  RecordSelector, Skolem, Type, TypeCache, TypeEnv, TypeFormatter, TypeVariable};
+use base::types::{self, Alias, AliasRef, AppVec, ArcType, Field, Generic, PrimitiveEnv,
+                  RecordSelector, Skolem, Type, TypeCache, TypeEnv, TypeVariable};
 
 use kindcheck::{self, Error as KindCheckError, KindCheck, KindError};
 use substitution::{self, Constraints, Substitution};
@@ -90,42 +90,18 @@ impl<I: fmt::Display + AsRef<str>> fmt::Display for TypeError<I> {
                 write!(f, "Type `{}` does not have the field `{}`", typ, field)
             }
             Unification(ref expected, ref actual, ref errors) => {
-                let filters = errors
-                    .iter()
-                    .filter_map(|err| match *err {
-                        UnifyError::Other(ref err) => Some(err.make_filter()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
-                let filter = move |field: &I| {
-                    if filters.is_empty() {
-                        Filter::Retain
-                    } else {
-                        filters
-                            .iter()
-                            .fold(Filter::Drop, move |filter, f| match filter {
-                                Filter::Retain => filter,
-                                _ => match f(field) {
-                                    Filter::Drop => filter,
-                                    Filter::RetainKey => Filter::RetainKey,
-                                    Filter::Retain => Filter::Retain,
-                                },
-                            })
-                    }
-                };
-
                 let arena = Arena::new();
                 let types = chain![&arena;
                     "Expected:",
                     chain![&arena;
                         arena.space(),
-                        TypeFormatter::new(expected).filter(&filter).pretty(&arena)
+                        expected.pretty(&arena)
                     ].nest(4).group(),
                     arena.newline(),
                     "Found:",
                     chain![&arena;
                         arena.space(),
-                        TypeFormatter::new(actual).filter(&filter).pretty(&arena)
+                        actual.pretty(&arena)
                     ].nest(4).group()
                 ].group();
                 let doc = chain![&arena;
@@ -141,10 +117,7 @@ impl<I: fmt::Display + AsRef<str>> fmt::Display for TypeError<I> {
                     return Ok(());
                 }
                 for error in &errors[..errors.len() - 1] {
-                    match *error {
-                        UnifyError::Other(ref err) => err.filter_fmt(&filter, f)?,
-                        _ => writeln!(f, "{}", error)?,
-                    }
+                    writeln!(f, "{}", error)?;
                 }
                 write!(f, "{}", errors.last().unwrap())
             }
@@ -1122,7 +1095,7 @@ impl<'a> Typecheck<'a> {
         function_type = self.skolemize(&function_type);
         let mut arg_types = Vec::new();
         let body_type = {
-            let mut iter1 = function_arg_iter(self, function_type);
+            let mut iter1 = function_arg_iter(self, args.last().unwrap().span, function_type);
             for arg in args {
                 let arg_type = match iter1.next() {
                     Some(arg_type) => arg_type,
@@ -1702,8 +1675,9 @@ impl<'a> Typecheck<'a> {
             Pattern::Constructor(ref id, ref mut args) => {
                 debug!("{}: {}", self.symbols.string(&id.name), final_type);
                 let len = args.len();
+                let span = args.last().map(|arg| arg.span).unwrap_or(pattern.span);
                 let iter = args.iter_mut().zip(
-                    function_arg_iter(self, final_type.clone())
+                    function_arg_iter(self, span, final_type.clone())
                         .take(len)
                         .collect::<Vec<_>>(),
                 );
@@ -2370,6 +2344,7 @@ fn get_alias_app<'a>(
 
 struct FunctionArgIter<'a, 'b: 'a> {
     tc: &'a mut Typecheck<'b>,
+    span: Span<BytePos>,
     typ: ArcType,
 }
 
@@ -2392,7 +2367,12 @@ impl<'a, 'b> Iterator for FunctionArgIter<'a, 'b> {
                         let arg = self.tc.subs.new_var();
                         let ret = self.tc.subs.new_var();
                         let f = self.tc.type_cache.function(Some(arg.clone()), ret.clone());
-                        self.tc.unify(&self.typ, f).unwrap();
+                        if let Err(err) = self.tc.unify(&self.typ, f) {
+                            self.tc.errors.push(Spanned {
+                                span: self.span,
+                                value: err.into(),
+                            });
+                        }
                         (Some(arg), ret)
                     }
                 },
@@ -2405,8 +2385,12 @@ impl<'a, 'b> Iterator for FunctionArgIter<'a, 'b> {
     }
 }
 
-fn function_arg_iter<'a, 'b>(tc: &'a mut Typecheck<'b>, typ: ArcType) -> FunctionArgIter<'a, 'b> {
-    FunctionArgIter { tc: tc, typ: typ }
+fn function_arg_iter<'a, 'b>(
+    tc: &'a mut Typecheck<'b>,
+    span: Span<BytePos>,
+    typ: ArcType,
+) -> FunctionArgIter<'a, 'b> {
+    FunctionArgIter { tc, span, typ }
 }
 
 /// Returns a span of the innermost expression of a group of nested `let` and `type` bindings.

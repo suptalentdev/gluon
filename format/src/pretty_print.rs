@@ -30,22 +30,22 @@ macro_rules! rev_newlines_iter {
     }
 }
 
-pub(super) struct Printer<'a: 'e, 'e, I: 'a>(pretty_types::Printer<'a, 'e, I>);
+pub(super) struct Printer<'a: 'e, 'e>(pretty_types::Printer<'a, 'e>);
 
-impl<'a: 'e, 'e, I> Printer<'a, 'e, I>
-where
-    I: AsRef<str>,
-{
+impl<'a: 'e, 'e> Printer<'a, 'e> {
     pub(super) fn new(arena: &'a Arena<'a>, source: &'e source::Source<'a>) -> Self {
-        Printer(pretty_types::Printer::new(arena, source))
+        Printer(pretty_types::Printer { arena, source })
     }
 
-    pub(super) fn format(
+    pub(super) fn format<Id>(
         &self,
         width: usize,
         newline: &'a str,
-        expr: &'a SpannedExpr<I>,
-    ) -> String {
+        expr: &'a SpannedExpr<Id>,
+    ) -> String
+    where
+        Id: AsRef<str>,
+    {
         self.pretty_expr(expr)
             .1
             .pretty(width)
@@ -55,7 +55,10 @@ where
             .collect()
     }
 
-    fn pretty_expr(&self, expr: &'a SpannedExpr<I>) -> DocBuilder<'a, Arena<'a>> {
+    fn pretty_expr<Id>(&self, expr: &'a SpannedExpr<Id>) -> DocBuilder<'a, Arena<'a>>
+    where
+        Id: AsRef<str>,
+    {
         self.pretty_expr_with_shebang_line(expr)
             .append(self.comments(Span::new(
                 expr.span.end,
@@ -63,7 +66,13 @@ where
             )))
     }
 
-    fn pretty_expr_with_shebang_line(&self, expr: &'a SpannedExpr<I>) -> DocBuilder<'a, Arena<'a>> {
+    fn pretty_expr_with_shebang_line<Id>(
+        &self,
+        expr: &'a SpannedExpr<Id>,
+    ) -> DocBuilder<'a, Arena<'a>>
+    where
+        Id: AsRef<str>,
+    {
         let arena = self.arena;
         match self.find_shebang_line() {
             Some(shebang_line) => arena
@@ -82,11 +91,14 @@ where
         }
     }
 
-    fn pretty_expr_(
+    fn pretty_expr_<Id>(
         &self,
         previous_end: BytePos,
-        expr: &'a SpannedExpr<I>,
-    ) -> DocBuilder<'a, Arena<'a>> {
+        expr: &'a SpannedExpr<Id>,
+    ) -> DocBuilder<'a, Arena<'a>>
+    where
+        Id: AsRef<str>,
+    {
         let arena = self.arena;
 
         let pretty = |next: &'a SpannedExpr<_>| self.pretty_expr_(next.span.start, next);
@@ -161,7 +173,7 @@ where
                 arguments.group().append(body)
             }
             Expr::LetBindings(ref binds, ref body) => {
-                let binding = |prefix: &'a str, bind: &'a ValueBinding<I>| {
+                let binding = |prefix: &'a str, bind: &'a ValueBinding<Id>| {
                     let decl = chain![arena;
                         prefix,
                         chain![arena;
@@ -323,11 +335,14 @@ where
         }
     }
 
-    fn pretty_else_expr(
+    fn pretty_else_expr<Id>(
         &self,
         space: DocBuilder<'a, Arena<'a>>,
-        if_false: &'a SpannedExpr<I>,
-    ) -> DocBuilder<'a, Arena<'a>> {
+        if_false: &'a SpannedExpr<Id>,
+    ) -> DocBuilder<'a, Arena<'a>>
+    where
+        Id: AsRef<str>,
+    {
         let pretty = |next: &'a SpannedExpr<_>| self.pretty_expr_(next.span.start, next);
         let arena = self.arena;
         match if_false.value {
@@ -344,11 +359,14 @@ where
         }
     }
 
-    fn pretty_lambda(
+    fn pretty_lambda<Id>(
         &self,
         previous_end: BytePos,
-        expr: &'a SpannedExpr<I>,
-    ) -> (DocBuilder<'a, Arena<'a>>, DocBuilder<'a, Arena<'a>>) {
+        expr: &'a SpannedExpr<Id>,
+    ) -> (DocBuilder<'a, Arena<'a>>, DocBuilder<'a, Arena<'a>>)
+    where
+        Id: AsRef<str>,
+    {
         let arena = self.arena;
         match expr.value {
             Expr::Lambda(ref lambda) => {
@@ -482,14 +500,10 @@ where
         }
     }
 
-    fn comma_sep<F, J, T, U>(
-        &'e self,
-        iter: J,
-        f: F,
-    ) -> CommaSeparated<'a, 'e, F, I, J::IntoIter, U>
+    fn comma_sep<F, I, T, U>(&'e self, iter: I, f: F) -> CommaSeparated<'a, 'e, F, I::IntoIter, U>
     where
         F: FnMut(T) -> DocBuilder<'a, Arena<'a>>,
-        J: IntoIterator<Item = T>,
+        I: IntoIterator<Item = T>,
         T: ::std::borrow::Borrow<Spanned<U, BytePos>>,
     {
         CommaSeparated {
@@ -502,15 +516,21 @@ where
         }
     }
 
-    fn pretty_pattern(&self, pattern: &'a SpannedPattern<I>) -> DocBuilder<'a, Arena<'a>> {
+    fn pretty_pattern<Id>(&self, pattern: &'a SpannedPattern<Id>) -> DocBuilder<'a, Arena<'a>>
+    where
+        Id: AsRef<str>,
+    {
         self.pretty_pattern_(pattern, Prec::Top)
     }
 
-    fn pretty_pattern_(
+    fn pretty_pattern_<Id>(
         &self,
-        pattern: &'a SpannedPattern<I>,
+        pattern: &'a SpannedPattern<Id>,
         prec: Prec,
-    ) -> DocBuilder<'a, Arena<'a>> {
+    ) -> DocBuilder<'a, Arena<'a>>
+    where
+        Id: AsRef<str>,
+    {
         let arena = self.arena;
         match pattern.value {
             Pattern::As(ref ident, ref pat) => prec.enclose(
@@ -587,17 +607,19 @@ where
                 ")"
             ].group(),
             Pattern::Error => arena.text("<error>"),
-            Pattern::Literal(_) => arena.text(
-                &self.source.src()[pattern.span.start.to_usize()..pattern.span.end.to_usize()],
-            ),
+            Pattern::Literal(_) => arena
+                .text(&self.source.src()[pattern.span.start.to_usize()..pattern.span.end.to_usize()]),
         }
     }
 
-    fn hang(
+    fn hang<Id>(
         &self,
         from: DocBuilder<'a, Arena<'a>>,
-        expr: &'a SpannedExpr<I>,
-    ) -> DocBuilder<'a, Arena<'a>> {
+        expr: &'a SpannedExpr<Id>,
+    ) -> DocBuilder<'a, Arena<'a>>
+    where
+        Id: AsRef<str>,
+    {
         let arena = self.arena;
         let (arguments, body) = self.pretty_lambda(expr.span.start, expr);
         match expr.value {
@@ -640,14 +662,14 @@ where
         }
     }
 
-    fn comma_sep_paren<J, F, T, U>(
+    fn comma_sep_paren<F, I, T, U>(
         &'e self,
-        iter: J,
+        iter: I,
         f: F,
-    ) -> CommaSeparated<'a, 'e, F, I, J::IntoIter, U>
+    ) -> CommaSeparated<'a, 'e, F, I::IntoIter, U>
     where
         F: FnMut(T) -> DocBuilder<'a, Arena<'a>>,
-        J: IntoIterator<Item = T>,
+        I: IntoIterator<Item = T>,
         T: ::std::borrow::Borrow<Spanned<U, BytePos>>,
     {
         CommaSeparated {
@@ -682,32 +704,30 @@ where
     }
 }
 
-impl<'a: 'e, 'e, I> ops::Deref for Printer<'a, 'e, I> {
-    type Target = pretty_types::Printer<'a, 'e, I>;
+impl<'a: 'e, 'e> ops::Deref for Printer<'a, 'e> {
+    type Target = pretty_types::Printer<'a, 'e>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-struct CommaSeparated<'a: 'e, 'e, F, I, J, U>
+struct CommaSeparated<'a: 'e, 'e, F, I, U>
 where
-    I: 'a,
-    J: Iterator,
+    I: Iterator,
 {
-    printer: &'e Printer<'a, 'e, I>,
-    iter: ::std::iter::Peekable<J>,
+    printer: &'e Printer<'a, 'e>,
+    iter: ::std::iter::Peekable<I>,
     f: F,
     parens: bool,
     i: usize,
     _marker: ::std::marker::PhantomData<U>,
 }
 
-impl<'a, 'e, F, I, J, T, U> Iterator for CommaSeparated<'a, 'e, F, I, J, U>
+impl<'a, 'e, F, I, T, U> Iterator for CommaSeparated<'a, 'e, F, I, U>
 where
-    I: AsRef<str>,
     F: FnMut(T) -> DocBuilder<'a, Arena<'a>>,
-    J: Iterator<Item = T>,
+    I: Iterator<Item = T>,
     T: ::std::borrow::Borrow<Spanned<U, BytePos>>,
 {
     type Item = DocBuilder<'a, Arena<'a>>;
