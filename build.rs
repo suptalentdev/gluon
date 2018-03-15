@@ -4,12 +4,11 @@ use std::io::{Read, Write};
 #[cfg(feature = "skeptic")]
 mod gen_skeptic {
     extern crate skeptic;
-    extern crate walkdir;
 
     use std::env;
     use std::fs::File;
     use std::io::prelude::*;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     /// skeptic templates look for `rust` after the opening code fences so writing
     /// ```f#,rust
@@ -42,8 +41,8 @@ fn main() {{
 
 "##;
 
-    fn generate_skeptic_tests(file: &Path) -> String {
-        println!("cargo:rerun-if-changed={}", file.display());
+    fn generate_skeptic_tests(file: &str) -> String {
+        println!("cargo:rerun-if-changed={}", file);
 
         // Preprocess the readme to inject the skeptic template needed to to run the examples
         let out_file_name = Path::new(&env::var("OUT_DIR").unwrap()).join(file);
@@ -58,12 +57,10 @@ fn main() {{
     }
 
     pub fn generate() {
-        let test_locations: Vec<_> = self::walkdir::WalkDir::new("book/src")
-            .into_iter()
-            .filter_entry(|e| e.path().extension().and_then(|p| p.to_str()) == Some("md"))
-            .map(|e| e.unwrap().path().to_owned())
-            .chain(Some(PathBuf::from("README.md")))
-            .map(|p| generate_skeptic_tests(&p))
+        let test_locations: Vec<_> = ["README.md", "TUTORIAL.md"]
+            .iter()
+            .cloned()
+            .map(generate_skeptic_tests)
             .collect();
 
         let str_vec: Vec<_> = test_locations.iter().map(|s| &s[..]).collect();
