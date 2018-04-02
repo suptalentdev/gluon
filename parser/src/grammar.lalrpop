@@ -13,7 +13,7 @@ use ordered_float::NotNaN;
 
 use {Error, ErrorEnv, FieldExpr, FieldPattern, MutIdentEnv};
 
-grammar<'input, 'env, Id>(src: &'input str, type_cache: &TypeCache<Id, ArcType<Id>>, env: MutIdentEnv<'env, Id>, errors: ErrorEnv<'env, 'input>)
+grammar<'input, 'env, Id>(type_cache: &TypeCache<Id, ArcType<Id>>, env: MutIdentEnv<'env, Id>, errors: ErrorEnv<'env, 'input>)
     where Id: Clone;
 
 extern {
@@ -324,7 +324,7 @@ AtomicPattern: Pattern<Id> = {
         match elems.len() {
             // Parenthesized pattern
             1 => elems.into_iter().next().unwrap().value,
-            _ => Pattern::Tuple { typ: type_cache.hole(), elems: elems },
+            _ => Pattern::Tuple { typ: Type::hole(), elems: elems },
         },
 
     "{" <fields: Comma<FieldPattern>> <implicit_import: Sp<"?"?>> "}" => {
@@ -347,12 +347,12 @@ AtomicPattern: Pattern<Id> = {
         let implicit_import_span = implicit_import.span;
 
         Pattern::Record {
-            typ: type_cache.hole(),
+            typ: Type::hole(),
             types: types,
             fields: values,
             implicit_import: implicit_import
                 .value
-                .map(|_| pos::spanned(implicit_import_span, env.from_str(&format!("implicit?{}", implicit_import_span.start)))),
+                .map(|_| pos::spanned(implicit_import_span, env.from_str(&format!("implicit?{}", implicit_import_span.start())))),
         }
     },
 };
@@ -394,7 +394,7 @@ Alternative: Alternative<Id> = {
     },
     "|" <pat: Sp<NoErrorPattern>> <err: !> <end: @R>  => {
         errors.push(err.error);
-        let span = pos::Span::new(pat.span.end, end);
+        let span = pos::Span::new(pat.span.end(), end);
         Alternative {
             pattern: pat,
             expr: pos::spanned(span, Expr::Error(None)),
@@ -477,18 +477,18 @@ AtomicExpr: Expr<Id> = {
     //     Expr::Getter(id),
 
     <expr: SpAtomicExpr> "." <id: Ident> =>
-        Expr::Projection(Box::new(expr), id, type_cache.hole()),
+        Expr::Projection(Box::new(expr), id, Type::hole()),
 
     <expr: SpAtomicExpr> "." <err: !> => {
         errors.push(err.error);
-        Expr::Projection(Box::new(expr), env.from_str(""), type_cache.hole())
+        Expr::Projection(Box::new(expr), env.from_str(""), Type::hole())
     },
 
     "(" <elems: Comma<SpExpr>> ")" =>
-        Expr::Tuple { typ: type_cache.hole(), elems: elems },
+        Expr::Tuple { typ: Type::hole(), elems: elems },
 
     "[" <elems: Comma<SpExpr>> "]" => Expr::Array(Array {
-            typ: type_cache.hole(),
+            typ: Type::hole(),
             exprs: elems,
         }),
 
@@ -512,7 +512,7 @@ AtomicExpr: Expr<Id> = {
         }
 
         Expr::Record {
-            typ: type_cache.hole(),
+            typ: Type::hole(),
             types: types,
             exprs: values,
             base: base.map(Box::new),
