@@ -1,10 +1,6 @@
 # Summary
 
-- [Getting started](./getting-started.md)
-
-    - [Dissecting Hello World](./dissecting-hello-world.md)
-
-    - [Using the REPL](./using-the-repl.md)
+- [Introduction](./introduction.md)
 
 - [Syntax and semantics](./syntax-and-semantics.md)
 
