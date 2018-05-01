@@ -75,7 +75,8 @@ mod serialization {
 impl Deref for Symbol {
     type Target = SymbolRef;
     fn deref(&self) -> &SymbolRef {
-        unsafe { ::std::mem::transmute::<&str, &SymbolRef>(&(self.0).0) }
+        let s: &str = self.0.as_str();
+        unsafe { ::std::mem::transmute::<&str, &SymbolRef>(s) }
     }
 }
 
@@ -195,7 +196,7 @@ impl SymbolRef {
     }
 
     pub fn name(&self) -> &Name {
-        Name::new(Name::new(&self.0).as_str())
+        Name::new(&self.0)
     }
 
     /// Returns the name of this symbol as it was originally declared (strips location information

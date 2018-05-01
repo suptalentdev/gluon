@@ -1,7 +1,7 @@
 //! The main typechecking interface which is responsible for typechecking expressions, patterns,
 //! etc. Only checks which need to be aware of expressions are handled here the actual unifying and
 //! checking of types are done in the `unify_type` and `kindcheck` modules.
-use std::borrow::{BorrowMut, Cow};
+use std::borrow::Cow;
 use std::fmt;
 use std::iter::once;
 use std::mem;
@@ -205,7 +205,6 @@ impl<I: fmt::Display + AsRef<str> + Clone> AsDiagnostic for TypeError<I> {
 #[derive(Debug, PartialEq)]
 pub enum Help {
     UndefinedFlatMapInDo,
-    ExtraArgument(u32, u32),
 }
 
 impl fmt::Display for Help {
@@ -216,17 +215,6 @@ impl fmt::Display for Help {
                 "Try bringing the `flat_map` function found in the `Monad`\
                  instance for your type into scope"
             ),
-            Help::ExtraArgument(expected, actual) => if expected == 0 {
-                write!(f, "Attempted to call a non-function value")
-            } else {
-                write!(
-                    f,
-                    "Attempted to call function with {} argument{} but its type only has {}",
-                    actual,
-                    if actual == 1 { "" } else { "s" },
-                    expected,
-                )
-            },
         }
     }
 }
@@ -387,6 +375,8 @@ impl<'a> Typecheck<'a> {
     fn find(&mut self, id: &Symbol) -> TcResult<ArcType> {
         match self.environment.find_type(id).map(ArcType::clone) {
             Some(typ) => {
+                let typ = self.subs.set_type(typ);
+
                 self.named_variables.clear();
                 let typ = new_skolem_scope(&self.subs, &typ);
                 debug!("Find {} : {}", self.symbols.string(id), typ);
@@ -789,7 +779,7 @@ impl<'a> Typecheck<'a> {
                     op.span,
                     func_type,
                     implicit_args,
-                    &mut [&mut **lhs, &mut **rhs],
+                    Some(&mut **lhs).into_iter().chain(Some(&mut **rhs)),
                 )
             }
             Expr::Tuple {
@@ -1139,100 +1129,68 @@ impl<'a> Typecheck<'a> {
         }
     }
 
-    fn typecheck_application<E>(
+    fn typecheck_application<'e, I>(
         &mut self,
         span: Span<BytePos>,
         mut func_type: ArcType,
         implicit_args: &mut Vec<SpannedExpr<Symbol>>,
-        args: &mut [E],
+        args: I,
     ) -> Result<TailCall, TypeError<Symbol>>
     where
-        E: BorrowMut<SpannedExpr<Symbol>>,
+        I: IntoIterator<Item = &'e mut SpannedExpr<Symbol>>,
     {
-        fn attach_extra_argument_help<F, R>(self_: &mut Typecheck, actual: u32, f: F) -> R
-        where
-            F: FnOnce(&mut Typecheck) -> R,
-        {
-            let errors_before = self_.errors.len();
-            let t = f(self_);
-            if errors_before != self_.errors.len() {
-                let len = self_.errors.len();
-                let expected_type = match self_.errors[len - 1].value.error {
-                    TypeError::Unification(ref expected_type, ..) => expected_type.clone(),
-                    _ => return t,
-                };
-                let extra = function_arg_iter(self_, expected_type).count() as u32;
-                self_.errors[len - 1].value.help =
-                    Some(Help::ExtraArgument(actual - extra, actual));
-            }
-            t
-        }
+        let mut prev_arg_end = span.end();
 
         func_type = self.new_skolem_scope(&func_type);
-
         for arg in &mut **implicit_args {
-            let arg_ty = self.subs.new_var();
-            let ret_ty = self.subs.new_var();
             let f = self.type_cache
-                .function_implicit(once(arg_ty.clone()), ret_ty.clone());
-
+                .function_implicit(once(self.subs.new_var()), self.subs.new_var());
+            func_type = self.instantiate_generics(&func_type);
             let level = self.subs.var_id();
+
             self.subsumes(arg.span, level, &f, func_type.clone());
 
-            self.typecheck(arg, &arg_ty);
+            func_type = match f.as_function() {
+                Some((arg_ty, ret_ty)) => {
+                    let arg_ty = self.subs.real(arg_ty).clone();
+                    let actual = self.typecheck(arg, &arg_ty);
+                    let actual = self.instantiate_generics(&actual);
 
-            func_type = ret_ty;
+                    let level = self.subs.var_id();
+                    self.subsumes_expr(expr_check_span(arg), level, &arg_ty, actual, arg);
+
+                    ret_ty.clone()
+                }
+                None => return Err(TypeError::NotAFunction(func_type.clone())),
+            };
+            prev_arg_end = arg.span.end();
         }
 
-        let mut not_a_function_index = None;
-
-        let mut prev_arg_end = implicit_args.last().map_or(span, |arg| arg.span).end();
-        for (i, arg) in args.iter_mut().map(|arg| arg.borrow_mut()).enumerate() {
-            let arg_ty = self.subs.new_var();
-            let ret_ty = self.subs.new_var();
+        for arg in args {
             let f = self.type_cache
-                .function(once(arg_ty.clone()), ret_ty.clone());
-
+                .function(once(self.subs.new_var()), self.subs.new_var());
+            func_type = self.instantiate_generics(&func_type);
             let level = self.subs.var_id();
-            let errors_before = self.errors.len();
             self.subsumes_implicit(span, level, &f, func_type.clone(), &mut |implicit_arg| {
                 implicit_args.push(pos::spanned2(prev_arg_end, arg.span.start(), implicit_arg));
             });
 
-            if errors_before != self.errors.len() {
-                self.errors.pop();
-                not_a_function_index = Some(i);
-                break;
-            }
+            func_type = match f.as_function() {
+                Some((arg_ty, ret_ty)) => {
+                    let arg_ty = self.subs.real(arg_ty).clone();
+                    let actual = self.typecheck(arg, &arg_ty);
+                    let actual = self.instantiate_generics(&actual);
 
-            self.typecheck(arg, &arg_ty);
+                    let level = self.subs.var_id();
+                    self.subsumes_expr(expr_check_span(arg), level, &arg_ty, actual, arg);
 
-            func_type = ret_ty;
+                    ret_ty.clone()
+                }
+                None => return Err(TypeError::NotAFunction(func_type.clone())),
+            };
 
             prev_arg_end = arg.span.end();
         }
-
-        if let Some(i) = not_a_function_index {
-            let args_len = args.len() as u32;
-            let extra_args = &mut args[i..];
-            let arg_types = extra_args
-                .iter_mut()
-                .map(|arg| self.infer_expr(arg.borrow_mut()))
-                .collect::<Vec<_>>();
-            let actual = self.type_cache.function(arg_types, self.subs.new_var());
-
-            let span = Span::new(
-                extra_args.first_mut().unwrap().borrow_mut().span.start(),
-                extra_args.last_mut().unwrap().borrow_mut().span.end(),
-            );
-            let level = self.subs.var_id();
-            attach_extra_argument_help(self, args_len, |self_| {
-                self_.subsumes(span, level, &actual, func_type.clone())
-            });
-
-            func_type = actual;
-        }
-
         Ok(TailCall::Type(func_type))
     }
 
@@ -1706,10 +1664,31 @@ impl<'a> Typecheck<'a> {
             }
 
             // Update the implicit bindings with the generalized types we just created
-            let bindings = self.implicit_resolver.implicit_bindings.last_mut().unwrap();
-
-            let stack = &self.environment.stack;
-            bindings.update(|name| Some(stack.get(name).unwrap().typ.clone()));
+            let mut bindings = self.implicit_resolver
+                .implicit_bindings
+                .last()
+                .unwrap()
+                .clone();
+            for i in 0..bindings.len() {
+                let opt = {
+                    let bind = bindings.get(i).unwrap();
+                    if bind.0.len() == 1 {
+                        let typ = self.environment
+                            .stack
+                            .get(&bind.0[0].name)
+                            .unwrap()
+                            .typ
+                            .clone();
+                        Some((bind.0.clone(), typ))
+                    } else {
+                        None
+                    }
+                };
+                if let Some(new) = opt {
+                    bindings = bindings.set(i, new).unwrap();
+                }
+            }
+            *self.implicit_resolver.implicit_bindings.last_mut().unwrap() = bindings;
         }
 
         debug!("Typecheck `in`");
@@ -2232,7 +2211,7 @@ impl<'a> Typecheck<'a> {
         span: Span<BytePos>,
         level: u32,
         expected: &ArcType,
-        actual: ArcType,
+        mut actual: ArcType,
     ) -> ArcType {
         debug!("Merge {} : {}", expected, actual);
         let expected = self.skolemize(&expected);
@@ -2245,13 +2224,16 @@ impl<'a> Typecheck<'a> {
             &expected,
             &actual,
         ) {
-            Ok(typ) => typ,
+            Ok(typ) => self.subs.set_type(typ),
             Err(errors) => {
+                let mut expected = expected.clone();
+                expected = self.subs.set_type(expected);
+                actual = self.subs.set_type(actual);
                 debug!(
                     "Error '{:?}' between:\n>> {}\n>> {}",
                     errors, expected, actual
                 );
-                let err = TypeError::Unification(expected, actual, errors.into());
+                let err = TypeError::Unification(expected, actual, apply_subs(&self.subs, errors));
                 self.errors.push(Spanned {
                     span: span,
                     // TODO Help what caused this unification failure
@@ -2276,20 +2258,23 @@ impl<'a> Typecheck<'a> {
         }
     }
 
-    fn unify(&self, expected: &ArcType, actual: ArcType) -> TcResult<ArcType> {
+    fn unify(&self, expected: &ArcType, mut actual: ArcType) -> TcResult<ArcType> {
         debug!("Unify start {} <=> {}", expected, actual);
         let state = unify_type::State::new(&self.environment, &self.subs);
         match unify::unify(&self.subs, state, expected, &actual) {
-            Ok(typ) => Ok(typ),
+            Ok(typ) => Ok(self.subs.set_type(typ)),
             Err(errors) => {
+                let mut expected = expected.clone();
+                expected = self.subs.set_type(expected);
+                actual = self.subs.set_type(actual);
                 debug!(
                     "Error '{:?}' between:\n>> {}\n>> {}",
                     errors, expected, actual
                 );
                 Err(TypeError::Unification(
-                    expected.clone(),
+                    expected,
                     actual,
-                    errors.into(),
+                    apply_subs(&self.subs, errors),
                 ))
             }
         }
@@ -2363,6 +2348,27 @@ fn with_pattern_types<F>(
             f(&field.name.value, &mut field.value, &associated_type.typ);
         }
     }
+}
+
+fn apply_subs(
+    subs: &Substitution<ArcType>,
+    errors: Errors<UnifyTypeError<Symbol>>,
+) -> Vec<UnifyTypeError<Symbol>> {
+    use unify::Error::*;
+    errors
+        .into_iter()
+        .map(|error| match error {
+            TypeMismatch(expected, actual) => {
+                TypeMismatch(subs.set_type(expected), subs.set_type(actual))
+            }
+            Substitution(err) => Substitution(match err {
+                substitution::Error::Occurs(var, typ) => {
+                    substitution::Error::Occurs(var, subs.set_type(typ))
+                }
+            }),
+            Other(err) => Other(err),
+        })
+        .collect()
 }
 
 pub fn extract_generics(args: &[ArcType]) -> Vec<Generic<Symbol>> {
