@@ -1458,7 +1458,7 @@ pub use self::record::Record;
 pub mod record {
     use std::any::Any;
 
-    use frunk_core::hlist::{h_cons, HCons, HList, HNil, Plucker};
+    use frunk_core::hlist::{h_cons, HCons, HList, HNil};
 
     use base::types;
     use base::types::ArcType;
@@ -1548,7 +1548,7 @@ pub mod record {
     impl<T: FieldTypes> VmType for Record<T> {
         type Type = Record<T::Type>;
         fn make_type(vm: &Thread) -> ArcType {
-            let len = T::static_len();
+            let len = T::LEN;
             let mut fields = Vec::with_capacity(len);
             T::field_types(vm, &mut fields);
             let type_cache = vm.global_env().type_cache();
@@ -1561,7 +1561,7 @@ pub mod record {
     {
         fn push(self, thread: &'vm Thread, context: &mut Context) -> Result<()> {
             self.fields.push(thread, context)?;
-            let len = T::static_len() as VmIndex;
+            let len = T::LEN as VmIndex;
             let offset = context.stack.len() - len;
             let value = thread::alloc(
                 &mut context.gc,
