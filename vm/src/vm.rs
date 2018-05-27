@@ -10,9 +10,8 @@ use base::fnv::FnvMap;
 use base::kind::{ArcKind, Kind, KindEnv};
 use base::metadata::{Metadata, MetadataEnv};
 use base::symbol::{Name, Symbol, SymbolRef};
-use base::types::{
-    Alias, AliasData, AppVec, ArcType, Generic, PrimitiveEnv, Type, TypeCache, TypeEnv,
-};
+use base::types::{Alias, AliasData, AppVec, ArcType, Generic, PrimitiveEnv, Type, TypeCache,
+                  TypeEnv};
 
 use api::{ValueRef, IO};
 use compiler::{CompiledFunction, CompiledModule, CompilerEnv, Variable};
@@ -198,8 +197,7 @@ impl TypeEnv for VmEnv {
                     .id_to_type
                     .values()
                     .filter_map(|alias| match **alias.unresolved_type() {
-                        Type::Variant(ref row) => row
-                            .row_iter()
+                        Type::Variant(ref row) => row.row_iter()
                             .find(|field| *field.name == *id)
                             .map(|field| &field.typ),
                         _ => None,
@@ -293,8 +291,7 @@ impl VmEnv {
     pub fn get_binding(&self, name: &str) -> Result<(Value, Cow<ArcType>)> {
         use base::resolve;
 
-        let (remaining_fields, global) = self
-            .get_global(name)
+        let (remaining_fields, global) = self.get_global(name)
             .ok_or_else(|| Error::UndefinedBinding(name.into()))?;
 
         if remaining_fields.as_str().is_empty() {
@@ -341,8 +338,7 @@ impl VmEnv {
     }
 
     pub fn get_metadata(&self, name_str: &str) -> Result<&Metadata> {
-        let (remaining, global) = self
-            .get_global(name_str)
+        let (remaining, global) = self.get_global(name_str)
             .ok_or_else(|| Error::MetadataDoesNotExist(name_str.into()))?;
 
         let mut metadata = &global.metadata;
@@ -411,8 +407,8 @@ impl GlobalVmStateBuilder {
 
 impl GlobalVmState {
     fn add_types(&mut self) -> StdResult<(), (TypeId, ArcType)> {
-        use api::generic::A;
         use api::Generic;
+        use api::generic::A;
         use base::types::BuiltinType;
         fn add_builtin_type<T: Any>(self_: &mut GlobalVmState, b: BuiltinType) {
             add_builtin_type_(self_, b, TypeId::of::<T>())
@@ -468,9 +464,19 @@ impl GlobalVmState {
         new_bytecode(&env, &mut interner, &mut gc, self, f)
     }
 
-    pub fn get_type<T: ?Sized + Any>(&self) -> Option<ArcType> {
+    pub fn get_type<T: ?Sized + Any>(&self) -> ArcType {
         let id = TypeId::of::<T>();
-        self.typeids.read().unwrap().get(&id).cloned()
+        self.typeids
+            .read()
+            .unwrap()
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| {
+                ice!(
+                    "Expected type to be inserted before get_type call. \
+                     Did you forget to call `Thread::register_type`?"
+                )
+            })
     }
 
     /// Checks if a global exists called `name`
@@ -529,38 +535,27 @@ impl GlobalVmState {
     }
 
     fn register_type_(&self, name: &str, args: &[&str], id: TypeId) -> Result<ArcType> {
-        let arg_types: AppVec<_> = args.iter().map(|g| self.get_generic(g)).collect();
-        let args = arg_types
-            .iter()
-            .map(|g| match **g {
-                Type::Generic(ref g) => g.clone(),
-                _ => unreachable!(),
-            })
-            .collect();
-        let n = Symbol::from(name);
-        let alias = Alias::from(AliasData::new(n.clone(), args, self.type_cache.opaque()));
-        self.register_type_as(n, alias, id)
-    }
-
-    pub fn register_type_as(
-        &self,
-        name: Symbol,
-        alias: Alias<Symbol, ArcType>,
-        id: TypeId,
-    ) -> Result<ArcType> {
         let mut env = self.env.write().unwrap();
         let type_infos = &mut env.type_infos;
-        if type_infos.id_to_type.contains_key(name.declared_name()) {
-            Err(Error::TypeAlreadyExists(name.declared_name().into()))
+        if type_infos.id_to_type.contains_key(name) {
+            Err(Error::TypeAlreadyExists(name.into()))
         } else {
-            self.typeids
-                .write()
-                .unwrap()
-                .insert(id, alias.clone().into_type());
-            let t = alias.clone().into_type();
-            type_infos
-                .id_to_type
-                .insert(name.declared_name().into(), alias);
+            let arg_types: AppVec<_> = args.iter().map(|g| self.get_generic(g)).collect();
+            let args = arg_types
+                .iter()
+                .map(|g| match **g {
+                    Type::Generic(ref g) => g.clone(),
+                    _ => unreachable!(),
+                })
+                .collect();
+            let n = Symbol::from(name);
+            let typ: ArcType = Type::app(Type::ident(n.clone()), arg_types);
+            self.typeids.write().unwrap().insert(id, typ.clone());
+            let t = self.typeids.read().unwrap().get(&id).unwrap().clone();
+            type_infos.id_to_type.insert(
+                name.into(),
+                Alias::from(AliasData::new(n, args, self.type_cache.opaque())),
+            );
             Ok(t)
         }
     }

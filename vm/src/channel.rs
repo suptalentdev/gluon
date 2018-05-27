@@ -1,25 +1,23 @@
 use std::any::Any;
-use std::collections::VecDeque;
 use std::fmt;
 use std::sync::{Arc, Mutex};
+use std::collections::VecDeque;
 
-use futures::sync::oneshot;
 use futures::Future;
+use futures::sync::oneshot;
 
 use base::types::{ArcType, Type};
 
-use api::generic::A;
-use api::{
-    primitive, AsyncPushable, Function, FunctionRef, FutureResult, Generic, Getable, OpaqueValue,
-    OwnedFunction, Pushable, RuntimeResult, VmType, WithVM, IO,
-};
-use gc::{Gc, GcPtr, Traverseable};
-use stack::{StackFrame, State};
-use thread::{OwnedContext, ThreadInternal};
-use types::VmInt;
-use value::{Callable, GcStr, Userdata, ValueRepr};
-use vm::{RootedThread, Status, Thread};
 use {Error, ExternModule, Result as VmResult};
+use api::{primitive, AsyncPushable, Function, FunctionRef, FutureResult, Generic, Getable,
+          OpaqueValue, OwnedFunction, Pushable, RuntimeResult, VmType, WithVM, IO};
+use api::generic::A;
+use gc::{Gc, GcPtr, Traverseable};
+use vm::{RootedThread, Status, Thread};
+use thread::{OwnedContext, ThreadInternal};
+use value::{Callable, GcStr, Userdata, ValueRepr};
+use stack::{StackFrame, State};
+use types::VmInt;
 
 pub struct Sender<T> {
     // No need to traverse this thread reference as any thread having a reference to this `Sender`
@@ -92,8 +90,7 @@ where
 {
     type Type = Sender<T::Type>;
     fn make_type(vm: &Thread) -> ArcType {
-        let symbol = vm
-            .global_env()
+        let symbol = vm.global_env()
             .get_env()
             .find_type_info("Sender")
             .unwrap()
@@ -109,8 +106,7 @@ where
 {
     type Type = Receiver<T::Type>;
     fn make_type(vm: &Thread) -> ArcType {
-        let symbol = vm
-            .global_env()
+        let symbol = vm.global_env()
             .get_env()
             .find_type_info("Receiver")
             .unwrap()
@@ -351,8 +347,6 @@ pub fn load_channel<'vm>(vm: &'vm Thread) -> VmResult<ExternModule> {
     ExternModule::new(
         vm,
         record!{
-            type Sender a => Sender<A>,
-            type Receiver a => Sender<A>,
             channel => primitive!(1 std::channel::channel),
             recv => primitive!(1 std::channel::recv),
             send => primitive!(2 std::channel::send),

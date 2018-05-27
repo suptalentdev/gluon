@@ -19,10 +19,8 @@ use either::Either;
 
 use itertools::Itertools;
 
-use base::ast::{
-    walk_expr, walk_pattern, AstType, Expr, Pattern, PatternField, SpannedExpr, SpannedIdent,
-    SpannedPattern, Typed, TypedIdent, Visitor,
-};
+use base::ast::{walk_expr, walk_pattern, AstType, Expr, Pattern, PatternField, SpannedExpr,
+                SpannedIdent, SpannedPattern, Typed, TypedIdent, Visitor};
 use base::filename_to_module;
 use base::fnv::{FnvMap, FnvSet};
 use base::kind::{ArcKind, Kind};
@@ -329,7 +327,7 @@ where
 
     fn visit_any<I>(&mut self, iter: I)
     where
-        I: IntoIterator<Item = Variant<'a>>,
+        I: IntoIterator<Item = Variant<'a>>
     {
         let (_, sel) = self.select_spanned(iter, |x| match *x {
             Variant::Pattern(p) => p.span,
@@ -349,14 +347,17 @@ where
                 ));
             }
             Variant::FieldIdent(ident, record_type) => {
-                let typ =
-                    resolve::remove_aliases(&::base::ast::EmptyEnv::default(), record_type.clone())
-                        .row_iter()
-                        .find(|field| field.name.name_eq(&ident.value))
-                        .map(|field| field.typ.clone())
-                        .unwrap_or_else(|| Type::hole());
+                let typ = resolve::remove_aliases(&::base::ast::EmptyEnv::default(), record_type.clone())
+                    .row_iter()
+                    .find(|field| field.name.name_eq(&ident.value))
+                    .map(|field| field.typ.clone())
+                    .unwrap_or_else(|| Type::hole());
 
-                self.found = MatchState::Found(Match::Ident(ident.span, &ident.value, typ));
+                self.found = MatchState::Found(Match::Ident(
+                    ident.span,
+                    &ident.value,
+                    typ,
+                ));
             }
             Variant::Type(t) => self.visit_ast_type(t),
             Variant::Expr(expr) => self.visit_expr(expr),
@@ -420,8 +421,7 @@ where
                     match either {
                         Either::Left(type_field) => {
                             if type_field.name.span.containment(self.pos) == Ordering::Equal {
-                                let field_type = typ
-                                    .type_field_iter()
+                                let field_type = typ.type_field_iter()
                                     .find(|it| it.name.name_eq(&type_field.name.value))
                                     .map(|it| it.typ.as_type())
                                     .unwrap_or(typ);
@@ -439,8 +439,7 @@ where
                             &field.value,
                         ) {
                             (Ordering::Equal, _) => {
-                                let field_type = typ
-                                    .row_iter()
+                                let field_type = typ.row_iter()
                                     .find(|it| it.name.name_eq(&field.name.value))
                                     .map(|it| &it.typ)
                                     .unwrap_or(typ);
@@ -537,11 +536,8 @@ where
                 rhs.span.containment(self.pos),
             ) {
                 (Ordering::Greater, Ordering::Less) => {
-                    self.found = MatchState::Found(Match::Ident(
-                        op.span,
-                        &op.value.name,
-                        op.value.typ.clone(),
-                    ));
+                    self.found =
+                        MatchState::Found(Match::Ident(op.span, &op.value.name, op.value.typ.clone()));
                 }
                 (_, Ordering::Greater) | (_, Ordering::Equal) => self.visit_expr(rhs),
                 _ => self.visit_expr(lhs),
@@ -618,10 +614,7 @@ where
             } => {
                 let iter = exprs
                     .iter()
-                    .flat_map(|field| {
-                        once(Variant::FieldIdent(&field.name, record_type))
-                            .chain(field.value.as_ref().map(Variant::Expr))
-                    })
+                    .flat_map(|field| once(Variant::FieldIdent(&field.name, record_type)).chain(field.value.as_ref().map(Variant::Expr)))
                     .chain(base.as_ref().map(|base| Variant::Expr(base)));
                 self.visit_any(iter)
             }
@@ -668,9 +661,7 @@ where
                     _ => unreachable!(),
                 }
             }
-            Expr::MacroExpansion {
-                ref replacement, ..
-            } => self.visit_expr(replacement),
+            Expr::MacroExpansion { ref replacement, .. } => self.visit_expr(replacement),
             Expr::Error(..) => (),
         }
     }
@@ -1042,15 +1033,13 @@ impl SuggestionQuery {
                 || name == prefix
         };
 
-        let fields = typ
-            .row_iter()
+        let fields = typ.row_iter()
             .filter(|field| should_suggest(field.name.declared_name()))
             .map(|field| Suggestion {
                 name: field.name.declared_name().into(),
                 typ: Either::Right(field.typ.clone()),
             });
-        let types = typ
-            .type_field_iter()
+        let types = typ.type_field_iter()
             .filter(|field| should_suggest(field.name.declared_name()))
             .map(|field| Suggestion {
                 name: field.name.declared_name().into(),
@@ -1142,8 +1131,7 @@ impl SuggestionQuery {
                             let typ = resolve::remove_aliases(&env, expr.env_type_of(&env));
                             let id = ident.as_ref();
 
-                            let iter = typ
-                                .row_iter()
+                            let iter = typ.row_iter()
                                 .filter(move |field| self.filter(field.name.as_ref(), id))
                                 .map(|field| (field.name.clone(), field.typ.clone()));
                             result.extend(iter.map(|(name, typ)| Suggestion {
@@ -1241,8 +1229,7 @@ impl SuggestionQuery {
 
         let base = PathBuf::from(path.module().as_str().replace(".", "/"));
 
-        let modules = self
-            .paths
+        let modules = self.paths
             .iter()
             .flat_map(|root| {
                 let walk_root = root.join(&*base);
@@ -1313,8 +1300,7 @@ impl SuggestionQuery {
                 match found.match_ {
                     Some(match_) => match match_ {
                         Match::Expr(expr) => {
-                            let suggestion = self
-                                .expr_iter(&suggest.stack, expr)
+                            let suggestion = self.expr_iter(&suggest.stack, expr)
                                 .find(|&(stack_name, _)| stack_name.declared_name() == name);
                             if let Some((name, _)) = suggestion {
                                 env.get(name)

@@ -428,10 +428,12 @@ fn upvars() {
                     typ: Type::int(),
                 },
             ],
-            vec![UpvarInfo {
-                name: "x".to_string(),
-                typ: Type::int(),
-            }],
+            vec![
+                UpvarInfo {
+                    name: "x".to_string(),
+                    typ: Type::int(),
+                },
+            ],
         ]
     );
 }

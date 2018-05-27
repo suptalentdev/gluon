@@ -5,10 +5,10 @@ extern crate serde_derive;
 
 extern crate gluon;
 
-use gluon::base::symbol::Symbol;
 use gluon::base::types::{ArcType, Field, Type};
-use gluon::vm::api::de::{self, De};
+use gluon::base::symbol::Symbol;
 use gluon::vm::api::{Getable, Hole, OpaqueValue, VmType};
+use gluon::vm::api::de::{self, De};
 use gluon::vm::thread::Thread;
 use gluon::{new_vm, Compiler};
 
@@ -101,10 +101,12 @@ impl VmType for OptionalFieldRecord {
     fn make_type(thread: &Thread) -> ArcType {
         Type::poly_record(
             vec![],
-            vec![Field {
-                name: Symbol::from("test"),
-                typ: Option::<i32>::make_type(thread),
-            }],
+            vec![
+                Field {
+                    name: Symbol::from("test"),
+                    typ: Option::<i32>::make_type(thread),
+                },
+            ],
             Type::hole(),
         )
     }
@@ -142,10 +144,12 @@ fn optional_field() {
 
     let typ = Type::poly_record(
         vec![],
-        vec![Field {
-            name: Symbol::from("test"),
-            typ: i32::make_type(&thread),
-        }],
+        vec![
+            Field {
+                name: Symbol::from("test"),
+                typ: i32::make_type(&thread),
+            },
+        ],
         Type::hole(),
     );
     assert_eq!(

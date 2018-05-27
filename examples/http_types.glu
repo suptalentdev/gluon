@@ -1,4 +1,6 @@
-let { Body, ResponseBody, StatusCode, Method } = import! http.prim_types
+
+/// HTTP method
+type Method = | Get | Post | Delete | Update
 
 /// Type used by handlers to indicate why they could not process a request
 type Failure = | DontProcess | Error String
@@ -9,6 +11,8 @@ type Request = {
     uri : String,
     body: Body
 }
+
+type StatusCode = | OK | NotFound | InternalServerError
 
 /// HTTP server response
 type Response = {

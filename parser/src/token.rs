@@ -572,8 +572,9 @@ impl<'input> Iterator for Tokenizer<'input> {
                     Ok(None) => continue,
                     Err(err) => Some(Err(err)),
                 },
-                '#' if start.absolute == self.start_index
-                    && self.test_lookahead(|ch| ch == '!') =>
+                '#' if start.absolute == self.start_index && self.test_lookahead(|ch| {
+                    ch == '!'
+                }) =>
                 {
                     match self.shebang_line(start) {
                         Some(token) => Some(Ok(token)),

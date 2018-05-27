@@ -1,16 +1,14 @@
 //! Rust type to gluon type conversion
 
-use base::symbol::{Symbol, Symbols};
 use base::types::{ArcType, Field, Type, TypeCache};
+use base::symbol::{Symbol, Symbols};
 
+use {Error as VmError, Result};
 use api::VmType;
 use thread::{Thread, ThreadInternal};
-use {Error as VmError, Result};
 
-use serde::de::{
-    self, DeserializeOwned, DeserializeSeed, EnumAccess, Error, IntoDeserializer, MapAccess,
-    SeqAccess, VariantAccess, Visitor,
-};
+use serde::de::{self, DeserializeOwned, DeserializeSeed, EnumAccess, Error, IntoDeserializer,
+                MapAccess, SeqAccess, VariantAccess, Visitor};
 
 pub fn make_source<T>(thread: &Thread) -> Result<String>
 where
@@ -27,18 +25,15 @@ type {0} = {1}
 }
 
 /// Deserializes `T` from a gluon value assuming that `value` is of type `typ`.
-pub fn from_rust<T>(thread: &Thread) -> Result<(Symbol, ArcType)>
+pub fn from_rust<T>(thread: &Thread) -> Result<(String, ArcType)>
 where
     T: DeserializeOwned,
 {
     let mut symbols = Symbols::new();
-    from_rust_with_symbols::<T>(&mut symbols, thread)
+    from_rust_::<T>(&mut symbols, thread)
 }
 
-pub fn from_rust_with_symbols<T>(
-    symbols: &mut Symbols,
-    thread: &Thread,
-) -> Result<(Symbol, ArcType)>
+fn from_rust_<T>(symbols: &mut Symbols, thread: &Thread) -> Result<(String, ArcType)>
 where
     T: DeserializeOwned,
 {
@@ -60,7 +55,7 @@ where
     } else {
         type_cache.variant(variants)
     };
-    Ok((deserializer.state.symbols.symbol(deserializer.name), typ))
+    Ok((deserializer.name.to_string(), typ))
 }
 
 struct State<'de> {
@@ -240,8 +235,7 @@ impl<'de, 't, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         let value = visitor.visit_some(&mut *self)?;
-        let option_alias = self
-            .state
+        let option_alias = self.state
             .thread
             .find_type_info("std.types.Option")
             .unwrap()
@@ -545,8 +539,8 @@ impl<'de, 'a> VariantAccess<'de> for Enum<'a, 'de> {
 
 #[cfg(test)]
 mod tests {
-    use super::from_rust_with_symbols;
     use super::*;
+    use super::from_rust_;
     use thread::RootedThread;
 
     #[allow(dead_code)]
@@ -559,9 +553,8 @@ mod tests {
     #[test]
     fn struct_type() {
         let mut symbols = Symbols::new();
-        let (name, typ) =
-            from_rust_with_symbols::<Test>(&mut symbols, &RootedThread::new()).unwrap();
-        assert_eq!(name.declared_name(), "Test");
+        let (name, typ) = from_rust_::<Test>(&mut symbols, &RootedThread::new()).unwrap();
+        assert_eq!(name, "Test");
         assert_eq!(
             typ,
             Type::record(
@@ -585,9 +578,8 @@ mod tests {
     #[test]
     fn enum_type() {
         let mut symbols = Symbols::new();
-        let (name, typ) =
-            from_rust_with_symbols::<Enum>(&mut symbols, &RootedThread::new()).unwrap();
-        assert_eq!(name.declared_name(), "Enum");
+        let (name, typ) = from_rust_::<Enum>(&mut symbols, &RootedThread::new()).unwrap();
+        assert_eq!(name, "Enum");
         assert_eq!(
             typ,
             Type::variant(vec![

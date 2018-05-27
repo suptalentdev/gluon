@@ -1,16 +1,16 @@
 use std::any::Any;
 use std::fmt;
-use std::marker::PhantomData;
 use std::sync::Mutex;
+use std::marker::PhantomData;
 
-use api::generic::A;
-use api::{Generic, RuntimeResult, Userdata, VmType, WithVM};
 use base::types::{ArcType, Type};
+use {ExternModule, Result};
 use gc::{Gc, GcPtr, Move, Traverseable};
+use vm::Thread;
 use thread::ThreadInternal;
 use value::{Cloner, Value};
-use vm::Thread;
-use {ExternModule, Result};
+use api::{Generic, RuntimeResult, Userdata, VmType, WithVM};
+use api::generic::A;
 
 pub struct Reference<T> {
     value: Mutex<Value>,
@@ -100,7 +100,6 @@ pub fn load(vm: &Thread) -> Result<ExternModule> {
     ExternModule::new(
         vm,
         record!{
-            type Reference a => Reference<A>,
             (store "<-") => named_primitive!(2, "std.reference.prim.(<-)", std::reference::prim::set),
             load => named_primitive!(1, "std.reference.prim.load", std::reference::prim::get),
             (ref_ "ref") =>  named_primitive!(1, "std.reference.prim.ref", std::reference::prim::make_ref),

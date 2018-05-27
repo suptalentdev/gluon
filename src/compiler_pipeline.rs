@@ -782,9 +782,8 @@ where
 pub struct Precompiled<D>(pub D);
 
 #[cfg_attr(feature = "serde_derive_state", derive(DeserializeState, SerializeState))]
-#[cfg_attr(
-    feature = "serde_derive_state", serde(deserialize_state = "::vm::serialization::DeSeed")
-)]
+#[cfg_attr(feature = "serde_derive_state",
+           serde(deserialize_state = "::vm::serialization::DeSeed"))]
 #[cfg_attr(feature = "serde_derive_state", serde(serialize_state = "::vm::serialization::SeSeed"))]
 pub struct Module {
     #[cfg_attr(feature = "serde_derive_state", serde(state_with = "::vm::serialization::borrow"))]

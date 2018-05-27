@@ -204,8 +204,7 @@ impl<'a, I> Printer<'a, I> {
         let arena = self.arena;
         let mut doc = arena.nil();
         let mut comments = 0;
-        for comment in self
-            .source
+        for comment in self.source
             .comments_between(Span::new(self.source.span().start(), pos))
             .rev()
         {

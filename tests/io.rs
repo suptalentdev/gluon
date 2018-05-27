@@ -2,8 +2,8 @@ extern crate env_logger;
 extern crate gluon;
 extern crate tokio_core;
 
-use gluon::vm::api::{Hole, OpaqueValue, ValueRef, IO};
 use gluon::{new_vm, Compiler, Thread};
+use gluon::vm::api::{Hole, OpaqueValue, ValueRef, IO};
 
 #[macro_use]
 mod support;
@@ -133,12 +133,11 @@ fn spawn_on_twice() {
 
     let mut core = self::tokio_core::reactor::Core::new().unwrap();
     let vm = make_async_vm(Some(core.remote()));
-    let (result, _) =
-        core.run(
-            Compiler::new()
-                .run_io(true)
-                .run_expr_async::<IO<String>>(&vm, "<top>", text),
-        ).unwrap_or_else(|err| panic!("{}", err));
+    let (result, _) = core.run(Compiler::new().run_io(true).run_expr_async::<IO<String>>(
+        &vm,
+        "<top>",
+        text,
+    )).unwrap_or_else(|err| panic!("{}", err));
     match result {
         IO::Value(result) => {
             assert_eq!(result, "abc");
@@ -146,12 +145,11 @@ fn spawn_on_twice() {
         IO::Exception(err) => panic!("{}", err),
     }
 
-    let (result, _) =
-        core.run(
-            Compiler::new()
-                .run_io(true)
-                .run_expr_async::<IO<String>>(&vm, "<top>", text),
-        ).unwrap_or_else(|err| panic!("{}", err));
+    let (result, _) = core.run(Compiler::new().run_io(true).run_expr_async::<IO<String>>(
+        &vm,
+        "<top>",
+        text,
+    )).unwrap_or_else(|err| panic!("{}", err));
     match result {
         IO::Value(result) => {
             assert_eq!(result, "abc");
@@ -177,12 +175,11 @@ fn spawn_on_runexpr() {
 
     let mut core = self::tokio_core::reactor::Core::new().unwrap();
     let vm = make_async_vm(Some(core.remote()));
-    let (result, _) =
-        core.run(
-            Compiler::new()
-                .run_io(true)
-                .run_expr_async::<IO<String>>(&vm, "<top>", text),
-        ).unwrap_or_else(|err| panic!("{}", err));
+    let (result, _) = core.run(Compiler::new().run_io(true).run_expr_async::<IO<String>>(
+        &vm,
+        "<top>",
+        text,
+    )).unwrap_or_else(|err| panic!("{}", err));
     match result {
         IO::Value(result) => {
             assert_eq!(result, "123");
@@ -213,12 +210,11 @@ fn spawn_on_runexpr_in_catch() {
 
     let mut core = self::tokio_core::reactor::Core::new().unwrap();
     let vm = make_async_vm(Some(core.remote()));
-    let (result, _) =
-        core.run(
-            Compiler::new()
-                .run_io(true)
-                .run_expr_async::<IO<String>>(&vm, "<top>", text),
-        ).unwrap_or_else(|err| panic!("{}", err));
+    let (result, _) = core.run(Compiler::new().run_io(true).run_expr_async::<IO<String>>(
+        &vm,
+        "<top>",
+        text,
+    )).unwrap_or_else(|err| panic!("{}", err));
     match result {
         IO::Value(result) => {
             assert_eq!(result, "123");
@@ -226,12 +222,11 @@ fn spawn_on_runexpr_in_catch() {
         IO::Exception(err) => panic!("{}", err),
     }
 
-    let (result, _) =
-        core.run(
-            Compiler::new()
-                .run_io(true)
-                .run_expr_async::<IO<String>>(&vm, "<top>", text),
-        ).unwrap_or_else(|err| panic!("{}", err));
+    let (result, _) = core.run(Compiler::new().run_io(true).run_expr_async::<IO<String>>(
+        &vm,
+        "<top>",
+        text,
+    )).unwrap_or_else(|err| panic!("{}", err));
     match result {
         IO::Value(result) => {
             assert_eq!(result, "123");

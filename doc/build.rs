@@ -1,5 +1,5 @@
-use std::env;
 use std::process::Command;
+use std::env;
 
 fn main() {
     if env::var("GIT_HASH").is_err() {

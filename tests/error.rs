@@ -5,10 +5,10 @@ use gluon::{base, parser};
 
 mod support;
 
-use gluon::check::typecheck::TypeError;
-use gluon::compiler_pipeline::*;
-use gluon::vm::Error as VMError;
 use gluon::{Compiler, Error};
+use gluon::compiler_pipeline::*;
+use gluon::check::typecheck::TypeError;
+use gluon::vm::Error as VMError;
 
 #[test]
 fn dont_panic_when_error_span_is_at_eof() {
@@ -71,8 +71,8 @@ fn panics_contain_stacktrace() {
 fn undefined_infix() {
     let _ = ::env_logger::try_init();
 
-    use base::pos::{self, BytePos};
     use parser::{InfixError, ParseErrors};
+    use base::pos::{self, BytePos};
 
     let expr = r#"
     let (+) x y = 1

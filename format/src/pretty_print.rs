@@ -6,8 +6,8 @@ use pretty::{Arena, DocAllocator, DocBuilder};
 
 use self::types::pretty_print as pretty_types;
 use base::ast::{Do, Expr, Pattern, SpannedExpr, SpannedPattern, ValueBinding};
-use base::kind::Kind;
 use base::metadata::Attribute;
+use base::kind::Kind;
 use base::pos::{self, BytePos, HasSpan, Span, Spanned};
 use base::source;
 use base::types::{self, ArgType, Prec, Type};
@@ -508,9 +508,10 @@ where
                         None => arena.nil(),
                     })
                     .nest(INDENT)
-                    .append(
-                        self.whitespace(Span::new(last_element_end, expr.span.end()), line.clone()),
-                    )
+                    .append(self.whitespace(
+                        Span::new(last_element_end, expr.span.end()),
+                        line.clone(),
+                    ))
                     .group()
                     .append("}");
                 (arena.text("{"), record)
@@ -693,16 +694,14 @@ where
                     doc
                 }
             }
-            _ => {
-                from.append(
-                    chain![arena;
+            _ => from.append(
+                chain![arena;
                             self.space_before(expr.span.start()),
                             arguments
                         ].group()
-                        .append(body)
-                        .nest(INDENT),
-                ).group()
-            }
+                    .append(body)
+                    .nest(INDENT),
+            ).group(),
         }
     }
 

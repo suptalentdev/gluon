@@ -203,8 +203,7 @@ impl<E: fmt::Display> InFile<E> {
         W: ?Sized + ::codespan_reporting::termcolor::WriteColor,
         E: AsDiagnostic,
     {
-        let iter = self
-            .error
+        let iter = self.error
             .iter()
             .map(AsDiagnostic::as_diagnostic)
             .enumerate();
