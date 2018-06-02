@@ -23,22 +23,14 @@ pub fn derive(input: TokenStream) -> TokenStream {
 }
 
 fn derive_struct(ast: DataStruct, ident: Ident, generics: Generics) -> TokenStream {
-    let cons = match ast.fields {
-        Fields::Named(FieldsNamed { named, .. }) => gen_struct_cons(&ident, named),
-        Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => gen_tuple_struct_cons(&ident, unnamed),
-        Fields::Unit => quote! { #ident },
+    let fields = match ast.fields {
+        Fields::Named(FieldsNamed { named, .. }) => named,
+        _ => panic!("Struct fields always have names"),
     };
 
-    gen_impl(ident, generics, cons)
-}
-
-fn gen_struct_cons<I>(ident: &Ident, fields: I) -> TokenStream
-where
-    I: IntoIterator<Item = Field>,
-{
     // lookup each field by its name and then convert to its type using the Getable
     // impl of the fields type
-    let field_initializers = fields.into_iter().map(|field| {
+    let field_initializers = fields.iter().map(|field| {
         let field_ty = &field.ty;
         let ident = field
             .ident
@@ -55,35 +47,13 @@ where
         }
     });
 
-    quote! {
+    let cons = quote! {
         #ident {
             #(#field_initializers,)*
         }
-    }
-}
+    };
 
-fn gen_tuple_struct_cons<I>(ident: &Ident, fields: I) -> TokenStream
-where
-    I: IntoIterator<Item = Field>,
-{
-    // do the lookup using the tag, because tuple structs don't have field names
-    let field_initializers = fields.into_iter().enumerate().map(|(tag, field)| {
-        let field_ty = &field.ty;
-
-        quote! {
-            if let Some(val) = data.get_variant(#tag) {
-                <#field_ty as ::gluon::vm::api::Getable<'__vm>>::from_value(vm, val)
-            } else {
-                panic!("Cannot find the field with tag '{}'. Do the type definitions match?", #tag);
-            }
-        }
-    });
-
-    quote! {
-        #ident (
-            #(#field_initializers,)*
-        )
-    }
+    gen_impl(ident, generics, cons)
 }
 
 fn derive_enum(ast: DataEnum, ident: Ident, generics: Generics) -> TokenStream {
@@ -120,7 +90,7 @@ fn gen_impl(ident: Ident, generics: Generics, cons_expr: TokenStream) -> TokenSt
 
     quote! {
         #[automatically_derived]
-        #[allow(unused_attributes, unused_variables)]
+        #[allow(unused_attributes)]
         impl #impl_generics ::gluon::vm::api::Getable<'__vm> for #ident #ty_generics
         #where_clause #(#getable_bounds,)* #(#lifetime_bounds),*
         {
@@ -149,14 +119,14 @@ fn gen_variant_match(ident: &Ident, tag: usize, variant: &Variant) -> TokenStrea
         // of the field to get the content from Data::get_variant;
         // the data variable was assigned in the function body above
         Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
-            let cons = gen_tuple_variant_cons(unnamed);
+            let cons = gen_tuple_cons(unnamed);
 
             quote! {
                 #tag => #ident::#variant_ident#cons
             }
         }
         Fields::Named(FieldsNamed { named, .. }) => {
-            let cons = gen_struct_variant_cons(named);
+            let cons = gen_struct_cons(named);
 
             quote! {
                 #tag => #ident::#variant_ident#cons
@@ -165,7 +135,7 @@ fn gen_variant_match(ident: &Ident, tag: usize, variant: &Variant) -> TokenStrea
     }
 }
 
-fn gen_tuple_variant_cons<'a, I>(fields: I) -> TokenStream
+fn gen_tuple_cons<'a, I>(fields: I) -> TokenStream
 where
     I: IntoIterator<Item = &'a Field>,
 {
@@ -186,7 +156,7 @@ where
     }
 }
 
-fn gen_struct_variant_cons<'a, I>(fields: I) -> TokenStream
+fn gen_struct_cons<'a, I>(fields: I) -> TokenStream
 where
     I: IntoIterator<Item = &'a Field>,
 {
