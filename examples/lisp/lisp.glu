@@ -53,8 +53,7 @@ let show : Show Expr =
                 match f.vararg with
                 | Some arg -> " . " <> arg
                 | None -> ""
-            "(lambda (" <> spaced id f.params <> ")" <> vararg
-                <> ") ...)"
+            "(lambda (" <> spaced id f.params <> ")" <> vararg <> ") ...)"
         | Primitive _ -> "<primitive>"
     { show }
 
@@ -74,7 +73,7 @@ let applicative_Lisp : Applicative Lisp = {
                 | Ok r -> Ok { value = g.value r.value, state = r.state }
                 | Err err -> Err err
             | Err err -> Err err),
-    wrap = \value -> lisp (\state -> Ok { value, state }),
+    wrap = \value -> lisp (\state -> Ok { value, state })
 }
 
 let { wrap } = applicative_Lisp
@@ -84,7 +83,7 @@ let monad_Lisp : Monad Lisp = {
     flat_map = \f m -> lisp (\state ->
             match lisp m state with
             | Ok r -> lisp (f r.value) r.state
-            | Err err -> Err err),
+            | Err err -> Err err)
 }
 
 let { flat_map, (>>=) } = import! std.monad
@@ -119,12 +118,7 @@ let primitive_binop name int_op float_op : _ -> Binop Int -> Binop Float -> Map 
         | Float f -> wrap f
         | _ -> fail "Expected float"
 
-    let fold unpack op : (Expr -> Lisp a)
-            -> Binop a
-            -> a
-            -> List Expr
-            -> _
-        = fold_m (\acc x -> map_lisp (\y -> op acc y) (unpack x))
+    let fold unpack op : (Expr -> Lisp a) -> Binop a -> a -> List Expr -> _ = fold_m (\acc x -> map_lisp (\y -> op acc y) (unpack x))
 
     let f xs : List Expr -> Lisp Expr =
         match xs with
@@ -147,11 +141,11 @@ let define xs =
         do closure = get_state
 
         let function = Function {
-                    params = list.functor.map show.show params,
-                    vararg = None,
-                    body,
-                    closure,
-                }
+            params = list.functor.map show.show params,
+            vararg = None,
+            body,
+            closure
+        }
         let new_state = prim_map.insert name function closure
 
         do _ = set_state new_state
@@ -161,7 +155,9 @@ let define xs =
 
 let primitives =
     let { (<>) = (++) } = import! std.prelude
-    primitive_binop "+" (+) (+) ++ primitive_binop "-" (-) (-) ++ primitive_binop "*" (*) (*)
+    primitive_binop "+" (+) (+)
+        ++ primitive_binop "-" (-) (-)
+        ++ primitive_binop "*" (*) (*)
         ++ primitive_binop "/" (/) (/)
         ++ primitive "define" define
 
@@ -179,7 +175,8 @@ let apply f xs : Expr -> List Expr -> Lisp Expr =
     | Function function ->
         scope_state (
             do _ = add_args function.params xs
-            eval_exprs function.body)
+            eval_exprs function.body
+        )
     | _ -> fail ("Can\'t call value: " <> show.show f)
 
 and eval_lisp expr : Expr -> Lisp Expr =
@@ -226,5 +223,5 @@ let eval_seq exprs =
     show,
     expr = parser.expr,
     eval,
-    eval_seq,
+    eval_seq
 }
