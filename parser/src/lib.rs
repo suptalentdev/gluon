@@ -414,16 +414,12 @@ pub fn parse_expr(
     parse_partial_expr(symbols, type_cache, input).map_err(|t| t.1)
 }
 
-#[derive(Debug, PartialEq)]
-pub enum ReplLine<Id> {
-    Expr(SpannedExpr<Id>),
-    Let(ValueBinding<Id>),
-}
+pub type LetOrExpr<Id> = Result<SpannedExpr<Id>, ValueBinding<Id>>;
 
 pub fn parse_partial_let_or_expr<Id, S>(
     symbols: &mut IdentEnv<Ident = Id>,
     input: &S,
-) -> Result<Option<ReplLine<Id>>, (Option<ReplLine<Id>>, ParseErrors)>
+) -> Result<LetOrExpr<Id>, (Option<LetOrExpr<Id>>, ParseErrors)>
 where
     Id: Clone + Eq + Hash + AsRef<str> + ::std::fmt::Debug,
     S: ?Sized + ParserSource,
@@ -461,7 +457,7 @@ where
         Ok(let_or_expr) => {
             if parse_errors.has_errors() {
                 Err((
-                    let_or_expr,
+                    Some(let_or_expr),
                     transform_errors(input.span(), parse_errors),
                 ))
             } else {

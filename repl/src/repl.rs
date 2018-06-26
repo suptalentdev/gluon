@@ -17,7 +17,7 @@ use base::kind::Kind;
 use base::pos;
 use base::symbol::{Symbol, SymbolModule};
 use base::types::ArcType;
-use parser::{parse_partial_let_or_expr, ReplLine};
+use parser::parse_partial_let_or_expr;
 use vm::api::de::De;
 use vm::api::generic::A;
 use vm::api::ser::Ser;
@@ -294,12 +294,11 @@ fn eval_line_(
         }
     };
     let future = match let_or_expr {
-        None => return FutureValue::sync(Ok(())).boxed(),
-        Some(ReplLine::Expr(expr)) => {
+        Ok(expr) => {
             compiler = compiler.run_io(true);
             expr.run_expr(&mut compiler, vm, "line", line, None).boxed()
         }
-        Some(ReplLine::Let(let_binding)) => {
+        Err(let_binding) => {
             let unpack_pattern = let_binding.name.clone();
             let eval_expr = match unpack_pattern.value {
                 Pattern::Ident(ref id) if !let_binding.args.is_empty() => {
