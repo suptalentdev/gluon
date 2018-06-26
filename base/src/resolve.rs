@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use fnv::FnvMap;
 use symbol::Symbol;
-use types::{AliasRef, ArcType, Type, TypeEnv};
+use types::{AliasData, AliasRef, ArcType, Type, TypeEnv};
 
 quick_error! {
     #[derive(Debug)]
@@ -79,22 +79,16 @@ pub fn remove_aliases_cow<'t>(env: &TypeEnv, typ: &'t ArcType) -> Cow<'t, ArcTyp
     }
 }
 
-/// Resolves aliases until `canonical` returns `true` for an alias in which case it returns the
-/// type that directly contains that alias
-pub fn canonical_alias<'t, F>(env: &TypeEnv, typ: &'t ArcType, mut canonical: F) -> Cow<'t, ArcType>
+pub fn canonical_alias<'t, F>(env: &TypeEnv, typ: &'t ArcType, canonical: F) -> Cow<'t, ArcType>
 where
-    F: FnMut(&AliasRef<Symbol, ArcType>) -> bool,
+    F: Fn(&AliasData<Symbol, ArcType>) -> bool,
 {
     match peek_alias(env, typ) {
-        Ok(Some(alias)) => if canonical(alias) {
-            Cow::Borrowed(typ)
-        } else {
-            alias
-                .typ()
-                .apply_args(&typ.unapplied_args())
-                .map(|typ| Cow::Owned(canonical_alias(env, &typ, canonical).into_owned()))
-                .unwrap_or(Cow::Borrowed(typ))
-        },
+        Ok(Some(alias)) if !canonical(alias) => alias
+            .typ()
+            .apply_args(&typ.unapplied_args())
+            .map(|typ| Cow::Owned(canonical_alias(env, &typ, canonical).into_owned()))
+            .unwrap_or(Cow::Borrowed(typ)),
         _ => Cow::Borrowed(typ),
     }
 }
