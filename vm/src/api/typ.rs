@@ -1,6 +1,4 @@
 //! Rust type to gluon type conversion
-//! 
-//! _This module requires Gluon to be built with the `serde` feature._
 
 use base::symbol::{Symbol, Symbols};
 use base::types::{ArcType, Field, Type, TypeCache};
