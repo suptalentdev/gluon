@@ -6,10 +6,9 @@ extern crate codespan;
 use crate::base::{
     self,
     ast::{DisplayEnv, Expr, IdentEnv, SpannedExpr},
-    error::{Errors, InFile},
+    error::InFile,
     kind::{ArcKind, Kind, KindEnv},
     metadata::{Metadata, MetadataEnv},
-    pos::{BytePos, Spanned},
     symbol::{Symbol, SymbolModule, SymbolRef, Symbols},
     types::{self, Alias, ArcType, Field, Generic, PrimitiveEnv, Type, TypeCache, TypeEnv},
 };
@@ -21,7 +20,7 @@ use crate::check::{
     typecheck::{self, Typecheck},
 };
 
-use std::{cell::RefCell, fmt, marker::PhantomData, rc::Rc};
+use std::{cell::RefCell, marker::PhantomData, rc::Rc};
 
 quick_error! {
     /// Representation of all possible errors that can occur when interacting with the `vm` crate
@@ -170,15 +169,6 @@ where
     }
 }
 
-pub(crate) fn in_file_error<E>(text: &str, errors: Errors<Spanned<E, BytePos>>) -> InFile<E>
-where
-    E: fmt::Display,
-{
-    let mut source = codespan::CodeMap::new();
-    source.add_filemap("test".into(), text.into());
-    InFile::new(source, errors)
-}
-
 pub fn typecheck_expr_expected(
     text: &str,
     expected: Option<&ArcType>,
@@ -186,7 +176,9 @@ pub fn typecheck_expr_expected(
     let mut expr = match parse_new(text) {
         Ok(expr) => expr,
         Err((expr, err)) => {
-            let err = in_file_error(text, err);
+            let mut source = codespan::CodeMap::new();
+            source.add_filemap("test".into(), text.into());
+            let err = InFile::new(source, err);
             return (expr.unwrap_or_else(|| panic!("{}", err)), Err(err.into()));
         }
     };
@@ -212,7 +204,14 @@ pub fn typecheck_expr_expected(
 
     let result = tc.typecheck_expr_expected(&mut expr, expected);
 
-    (expr, result.map_err(|err| in_file_error(text, err).into()))
+    (
+        expr,
+        result.map_err(|err| {
+            let mut source = codespan::CodeMap::new();
+            source.add_filemap("test".into(), text.into());
+            InFile::new(source, err).into()
+        }),
+    )
 }
 
 pub fn typecheck_expr(text: &str) -> (SpannedExpr<Symbol>, Result<ArcType, Error>) {
@@ -253,7 +252,14 @@ pub fn typecheck_partial_expr(
 
     let result = tc.typecheck_expr(&mut expr);
 
-    (expr, result.map_err(|err| in_file_error(text, err)))
+    (
+        expr,
+        result.map_err(|err| {
+            let mut source = codespan::CodeMap::new();
+            source.add_filemap("test".into(), text.into());
+            InFile::new(source, err)
+        }),
+    )
 }
 
 #[allow(dead_code)]
@@ -396,16 +402,13 @@ macro_rules! test_check_err {
             let _ = env_logger::try_init();
             let text = $source;
             let result = support::typecheck(text);
-            assert_err!([$source] result, $($id),+);
+            assert_err!(result, $($id),+);
         }
     };
 }
 
 macro_rules! assert_err {
-    ($e: expr, $($id: pat),+) => {
-        assert_err!([""] $e, $($id),+)
-    };
-    ([$text: expr] $e: expr, $($id: pat),+) => {{
+    ($e: expr, $($id: pat),+) => {{
         #[allow(unused_imports)]
         use crate::check::{
             typecheck::TypeError::*,
@@ -425,23 +428,8 @@ macro_rules! assert_err {
                 $(
                 match iter.next() {
                     Some(&crate::base::pos::Spanned { value: crate::base::error::Help { error: $id, .. }, .. }) => (),
-                    _ => {
-                        if $text.is_empty() {
-                            assert!(
-                                false,
-                                "Found errors:\n{}\nbut expected {}",
-                                errors,
-                                stringify!($id)
-                            )
-                        } else {
-                            assert!(
-                                false,
-                                "Found errors:\n{}\nbut expected {}",
-                                crate::support::in_file_error($text, errors),
-                                stringify!($id)
-                            )
-                        }
-                    }
+                    _ => assert!(false, "Found errors:\n{}\nbut expected {}",
+                                        errors, stringify!($id)),
                 }
                 )+
                 assert!(iter.count() == 0, "Found more errors than expected\n{}", errors);
