@@ -134,7 +134,6 @@ extern crate proc_macro2;
 extern crate quote;
 extern crate syn;
 
-mod attr;
 mod getable;
 mod pushable;
 mod shared;
@@ -142,13 +141,13 @@ mod userdata;
 mod vm_type;
 
 #[doc(hidden)]
-#[proc_macro_derive(Getable, attributes(gluon))]
+#[proc_macro_derive(Getable)]
 pub fn getable(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     getable::derive(input.into()).into()
 }
 
 #[doc(hidden)]
-#[proc_macro_derive(Pushable, attributes(gluon))]
+#[proc_macro_derive(Pushable)]
 pub fn pushable(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     pushable::derive(input.into()).into()
 }

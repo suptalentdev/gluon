@@ -29,7 +29,7 @@ use vm::api::{
 };
 use vm::future::FutureValue;
 use vm::internal::ValuePrinter;
-use vm::thread::{ActiveThread, RootStr, RootedValue, Thread, ThreadInternal};
+use vm::thread::{Context, RootStr, RootedValue, Thread, ThreadInternal};
 use vm::{self, Error as VMError, Result as VMResult};
 
 use gluon::compiler_pipeline::{Executable, ExecuteValue};
@@ -217,8 +217,8 @@ macro_rules! define_vmtype {
 define_vmtype! { ReadlineError }
 
 impl<'vm> Pushable<'vm> for ReadlineError {
-    fn push(self, context: &mut ActiveThread<'vm>) -> VMResult<()> {
-        ::gluon::vm::api::ser::Ser(self).push(context)
+    fn push(self, thread: &'vm Thread, context: &mut Context) -> VMResult<()> {
+        ::gluon::vm::api::ser::Ser(self).push(thread, context)
     }
 }
 
@@ -396,10 +396,11 @@ fn set_globals(
                     });
                 let field_type = resolved_type
                     .row_iter()
-                    .find(|f| f.name == *field_name)
+                    .find(|f| f.name.name_eq(field_name))
                     .unwrap_or_else(|| {
                         panic!(
-                            "record type doesn't have field `{}`",
+                            "record type `{}` doesn't have field `{}`",
+                            resolved_type,
                             field_name.declared_name()
                         )
                     })

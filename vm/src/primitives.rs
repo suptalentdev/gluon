@@ -7,6 +7,7 @@ use api::generic::A;
 use api::{generic, primitive, Array, Generic, Getable, Pushable, RuntimeResult, ValueRef, WithVM};
 use gc::{DataDef, Gc, Traverseable, WriteOnly};
 use stack::StackFrame;
+use thread::ThreadInternal;
 use types::VmInt;
 use value::{Def, GcStr, Repr, ValueArray, ValueRepr};
 use vm::{Status, Thread};
@@ -16,7 +17,6 @@ use {Error, ExternModule, Variants};
 #[doc(hidden)]
 pub mod array {
     use super::*;
-    use thread::ThreadInternal;
 
     pub fn len(array: Array<generic::A>) -> VmInt {
         array.len() as VmInt
@@ -98,7 +98,6 @@ pub mod array {
 mod string {
     use super::*;
     use api::Pushable;
-    use thread::ThreadInternal;
 
     pub fn append(lhs: WithVM<&str>, rhs: &str) -> RuntimeResult<String, Error> {
         struct StrAppend<'b> {
@@ -167,13 +166,13 @@ mod string {
     }
 
     pub extern "C" fn from_utf8(thread: &Thread) -> Status {
-        let mut context = thread.current_context();
-        let value = StackFrame::current(context.stack())[0].get_repr();
+        let mut context = thread.context();
+        let value = StackFrame::current(&mut context.stack)[0].get_repr();
         match value {
             ValueRepr::Array(array) => match GcStr::from_utf8(array) {
                 Ok(string) => {
                     let value = ValueRepr::String(string).into();
-                    let result = context.context().alloc_with(
+                    let result = context.alloc_with(
                         thread,
                         Def {
                             tag: 1,
@@ -182,18 +181,18 @@ mod string {
                     );
                     match result {
                         Ok(data) => {
-                            context.stack().push(ValueRepr::Data(data));
+                            context.stack.push(ValueRepr::Data(data));
                             Status::Ok
                         }
                         Err(err) => {
                             let result: RuntimeResult<(), _> = RuntimeResult::Panic(err);
-                            result.status_push(&mut context)
+                            result.status_push(thread, &mut context)
                         }
                     }
                 }
                 Err(()) => {
                     let err: StdResult<&str, ()> = Err(());
-                    err.status_push(&mut context)
+                    err.status_push(thread, &mut context)
                 }
             },
             _ => unreachable!(),
@@ -246,16 +245,16 @@ extern "C" fn error(_: &Thread) -> Status {
 }
 
 extern "C" fn discriminant_value(thread: &Thread) -> Status {
-    let mut context = thread.current_context();
+    let mut context = thread.context();
     let tag = {
-        let mut stack = StackFrame::current(context.stack());
+        let mut stack = StackFrame::current(&mut context.stack);
         let value = stack.get_variant(0).unwrap();
         match value.as_ref() {
             ValueRef::Data(data) => data.tag(),
             _ => 0,
         }
     };
-    tag.push(&mut context).unwrap();
+    tag.push(thread, &mut context).unwrap();
     Status::Ok
 }
 

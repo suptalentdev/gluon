@@ -5,11 +5,10 @@ use frunk_core::hlist::{h_cons, HCons, HList, HNil};
 use base::symbol::Symbol;
 use base::types::{self, Alias, AliasData, ArcType, Generic, Type};
 
-use super::{ActiveThread, Getable, Pushable, ValueRef, VmType};
-use interner::InternedStr;
-use thread;
+use super::{Getable, Pushable, ValueRef, VmType};
+use thread::{self, Context};
 use types::VmIndex;
-use value::{RecordDef, Value, ValueRepr};
+use value::{Def, Value, ValueRepr};
 use vm::Thread;
 use {Result, Variants};
 
@@ -39,11 +38,7 @@ pub trait FieldValues: HList {
 }
 
 pub trait PushableFieldList<'vm>: HList {
-    fn push(
-        self,
-        context: &mut ActiveThread<'vm>,
-        field_names: &mut Vec<InternedStr>,
-    ) -> Result<()>;
+    fn push(self, vm: &'vm Thread, fields: &mut Context) -> Result<()>;
 }
 
 pub trait GetableFieldList<'vm, 'value>: HList + Sized {
@@ -51,7 +46,7 @@ pub trait GetableFieldList<'vm, 'value>: HList + Sized {
 }
 
 impl<'vm> PushableFieldList<'vm> for HNil {
-    fn push(self, _: &mut ActiveThread, _: &mut Vec<InternedStr>) -> Result<()> {
+    fn push(self, _: &'vm Thread, _: &mut Context) -> Result<()> {
         Ok(())
     }
 }
@@ -142,15 +137,10 @@ impl<'vm, F: Field, H: Pushable<'vm>, T> PushableFieldList<'vm> for HCons<(F, H)
 where
     T: PushableFieldList<'vm>,
 {
-    fn push(
-        self,
-        context: &mut ActiveThread<'vm>,
-        field_names: &mut Vec<InternedStr>,
-    ) -> Result<()> {
+    fn push(self, vm: &'vm Thread, fields: &mut Context) -> Result<()> {
         let ((_, head), tail) = self.pluck();
-        field_names.push(context.thread().global_env().intern(F::name())?);
-        head.push(context)?;
-        tail.push(context, field_names)
+        head.push(vm, fields)?;
+        tail.push(vm, fields)
     }
 }
 
@@ -181,21 +171,16 @@ impl<'vm, T, U> Pushable<'vm> for Record<T, U>
 where
     U: PushableFieldList<'vm>,
 {
-    fn push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
-        let mut field_names = Vec::new();
-        self.fields.push(context, &mut field_names)?;
-
-        let thread = context.thread();
-        let context = context.context();
+    fn push(self, thread: &'vm Thread, context: &mut Context) -> Result<()> {
+        self.fields.push(thread, context)?;
         let len = U::LEN as VmIndex;
         let offset = context.stack.len() - len;
-
         let value = thread::alloc(
             &mut context.gc,
             thread,
             &context.stack,
-            RecordDef {
-                fields: &field_names,
+            Def {
+                tag: 0,
                 elems: &context.stack[offset..],
             },
         )?;
