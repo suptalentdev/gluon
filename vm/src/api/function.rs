@@ -10,12 +10,12 @@ use futures::{Async, Future};
 use base::symbol::Symbol;
 use base::types::ArcType;
 
-use api::{AsyncPushable, Getable, Pushable, RootedValue, VmType};
+use api::{ActiveThread, AsyncPushable, Getable, Pushable, RootedValue, VmType};
 use compiler::{CompiledFunction, CompiledModule};
 use future::FutureValue;
 use gc::Move;
 use stack::StackFrame;
-use thread::{Context, RootedThread, Status, Thread, ThreadInternal};
+use thread::{RootedThread, Status, Thread, ThreadInternal};
 use types::{Instruction, VmIndex};
 use value::{ExternFunction, Value, ValueRepr};
 use {Error, Result, Variants};
@@ -73,10 +73,11 @@ impl<'vm, F> Pushable<'vm> for Primitive<F>
 where
     F: FunctionType + VmType,
 {
-    fn push(self, thread: &'vm Thread, context: &mut Context) -> Result<()> {
+    fn push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
+        let thread = context.thread();
         // Map rust modules into gluon modules
         let id = Symbol::from(self.name.replace("::", "."));
-        let value = ValueRepr::Function(context.alloc_with(
+        let value = ValueRepr::Function(context.context().alloc_with(
             thread,
             Move(ExternFunction {
                 id: id,
@@ -84,7 +85,7 @@ where
                 function: self.function,
             }),
         )?);
-        context.stack.push(value);
+        context.push(value);
         Ok(())
     }
 }
@@ -100,7 +101,7 @@ impl<'vm, F> Pushable<'vm> for RefPrimitive<'vm, F>
 where
     F: VmFunction<'vm> + FunctionType + VmType + 'vm,
 {
-    fn push(self, thread: &'vm Thread, context: &mut Context) -> Result<()> {
+    fn push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
         use std::mem::transmute;
         let extern_function = unsafe {
             // The VM guarantess that it only ever calls this function with itself which should
@@ -113,7 +114,7 @@ where
             function: extern_function,
             name: self.name,
             _typ: self._typ,
-        }.push(thread, context)
+        }.push(context)
     }
 }
 
@@ -134,8 +135,10 @@ impl CPrimitive {
 }
 
 impl<'vm> Pushable<'vm> for CPrimitive {
-    fn push(self, thread: &'vm Thread, context: &mut Context) -> Result<()> {
+    fn push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
         use std::mem::transmute;
+
+        let thread = context.thread();
         let function = self.function;
         let extern_function = unsafe {
             // The VM guarantess that it only ever calls this function with itself which should
@@ -144,7 +147,7 @@ impl<'vm> Pushable<'vm> for CPrimitive {
                 function,
             )
         };
-        let value = context.alloc_with(
+        let value = context.context().alloc_with(
             thread,
             Move(ExternFunction {
                 id: self.id,
@@ -152,7 +155,7 @@ impl<'vm> Pushable<'vm> for CPrimitive {
                 function: extern_function,
             }),
         )?;
-        context.stack.push(ValueRepr::Function(value));
+        context.push(ValueRepr::Function(value));
         Ok(())
     }
 }
@@ -229,8 +232,8 @@ where
     T: Deref<Target = Thread>,
     F: VmType,
 {
-    fn push(self, _: &'vm Thread, context: &mut Context) -> Result<()> {
-        context.stack.push(self.value.get_variant());
+    fn push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
+        context.push(self.value.get_variant());
         Ok(())
     }
 }
@@ -298,6 +301,44 @@ where
     }
 }
 
+macro_rules! vm_function_impl {
+    ($f:tt, $($args:ident),*) => {
+
+impl <'vm, $($args,)* R> VmFunction<'vm> for $f ($($args),*) -> R
+where $($args: for<'value> Getable<'vm, 'value> + 'vm,)*
+      R: AsyncPushable<'vm> + VmType + 'vm
+{
+    #[allow(non_snake_case, unused_mut, unused_assignments, unused_variables, unused_unsafe)]
+    fn unpack_and_call(&self, vm: &'vm Thread) -> Status {
+        let n_args = Self::arguments();
+        let mut context = vm.current_context();
+        let mut i = 0;
+        let lock;
+        let r = unsafe {
+            let ($($args,)*) = {
+                let stack = StackFrame::current(context.stack());
+                $(let $args = {
+                    let x = $args::from_value_unsafe(vm, Variants::new(&stack[i]));
+                    i += 1;
+                    x
+                });*;
+// Lock the frame to ensure that any reference from_value_unsafe may have returned stay
+// rooted
+                lock = stack.into_lock();
+                ($($args,)*)
+            };
+            drop(context);
+            let r = (*self)($($args),*);
+            context = vm.current_context();
+            r
+        };
+        r.async_status_push(&mut context, lock)
+    }
+}
+
+    }
+}
+
 macro_rules! make_vm_function {
     ($($args:ident),*) => (
 impl <$($args: VmType,)* R: VmType> VmType for fn ($($args),*) -> R {
@@ -311,41 +352,12 @@ impl <$($args: VmType,)* R: VmType> VmType for fn ($($args),*) -> R {
     }
 }
 
+vm_function_impl!(fn, $($args),*);
+vm_function_impl!(Fn, $($args),*);
+
 impl <'vm, $($args,)* R: VmType> FunctionType for fn ($($args),*) -> R {
     fn arguments() -> VmIndex {
         count!($($args),*) + R::extra_args()
-    }
-}
-
-impl <'vm, $($args,)* R> VmFunction<'vm> for fn ($($args),*) -> R
-where $($args: for<'value> Getable<'vm, 'value> + 'vm,)*
-      R: AsyncPushable<'vm> + VmType + 'vm
-{
-    #[allow(non_snake_case, unused_mut, unused_assignments, unused_variables, unused_unsafe)]
-    fn unpack_and_call(&self, vm: &'vm Thread) -> Status {
-        let n_args = Self::arguments();
-        let mut context = vm.context();
-        let mut i = 0;
-        let lock;
-        let r = unsafe {
-            let ($($args,)*) = {
-                let stack = StackFrame::current(&mut context.stack);
-                $(let $args = {
-                    let x = $args::from_value_unsafe(vm, Variants::new(&stack[i]));
-                    i += 1;
-                    x
-                });*;
-// Lock the frame to ensure that any reference from_value_unsafe may have returned stay
-// rooted
-                lock = stack.into_lock();
-                ($($args,)*)
-            };
-            drop(context);
-            let r = (*self)($($args),*);
-            context = vm.context();
-            r
-        };
-        r.async_status_push(vm, &mut context, lock)
     }
 }
 
@@ -361,38 +373,6 @@ impl <'s, $($args: VmType,)* R: VmType> VmType for Fn($($args),*) -> R + 's {
     #[allow(non_snake_case)]
     fn make_type(vm: &Thread) -> ArcType {
         <fn ($($args),*) -> R>::make_type(vm)
-    }
-}
-
-impl <'vm, $($args,)* R> VmFunction<'vm> for Fn($($args),*) -> R + 'vm
-where $($args: for<'value> Getable<'vm, 'value> + 'vm,)*
-      R: AsyncPushable<'vm> + VmType + 'vm
-{
-    #[allow(non_snake_case, unused_mut, unused_assignments, unused_variables, unused_unsafe)]
-    fn unpack_and_call(&self, vm: &'vm Thread) -> Status {
-        let n_args = Self::arguments();
-        let mut context = vm.context();
-        let mut i = 0;
-        let lock;
-        let r = unsafe {
-            let ($($args,)*) = {
-                let stack = StackFrame::current(&mut context.stack);
-                $(let $args = {
-                    let x = $args::from_value_unsafe(vm, Variants::new(&stack[i]));
-                    i += 1;
-                    x
-                });*;
-// Lock the frame to ensure that any reference from_value_unsafe may have returned stay
-// rooted
-                lock = stack.into_lock();
-                ($($args,)*)
-            };
-            drop(context);
-            let r = (*self)($($args),*);
-            context = vm.context();
-            r
-        };
-        r.async_status_push(vm, &mut context, lock)
     }
 }
 
@@ -412,16 +392,16 @@ impl<T, $($args,)* R> Function<T, fn($($args),*) -> R>
     #[allow(non_snake_case)]
     fn call_first(&self $(, $args: $args)*) -> Result<Async<R>> {
         let vm = self.value.vm();
-        let mut context = vm.context();
-        context.stack.push(self.value.get_variant());
+        let mut context = vm.current_context();
+        context.push(self.value.get_variant());
         $(
-            $args.push(&vm, &mut context)?;
+            $args.push(&mut context)?;
         )*
         for _ in 0..R::extra_args() {
-            0.push(&vm, &mut context).unwrap();
+            0.push(&mut context).unwrap();
         }
         let args = count!($($args),*) + R::extra_args();
-        match vm.call_function(context, args)? {
+        match vm.call_function(context.into_owned(), args)? {
             Async::Ready(context) => {
                 let value = context.unwrap().stack.pop();
                 Self::return_value(vm, value).map(Async::Ready)
@@ -545,7 +525,9 @@ impl<T: VmType> VmType for TypedBytecode<T> {
 }
 
 impl<'vm, T: VmType> Pushable<'vm> for TypedBytecode<T> {
-    fn push(self, thread: &'vm Thread, context: &mut Context) -> Result<()> {
+    fn push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
+        let thread = context.thread();
+        let context = context.context();
         let mut compiled_module = CompiledModule::from(CompiledFunction::new(
             self.args,
             self.id,
