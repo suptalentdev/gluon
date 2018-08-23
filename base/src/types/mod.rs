@@ -75,7 +75,7 @@ type_cache! {
     TypeCache(Id, T)
     (kind_cache: ::kind::KindCache)
     { T, Type }
-    hole opaque error int byte float string char
+    hole opaque int byte float string char
     function_builtin array_builtin unit empty_row
 }
 
@@ -114,7 +114,8 @@ where
             .map(|(i, typ)| Field {
                 name: symbols.from_str(&format!("_{}", i)),
                 typ: typ,
-            }).collect();
+            })
+            .collect();
         if fields.is_empty() {
             self.unit()
         } else {
@@ -387,7 +388,8 @@ where
                     group: group.clone(),
                 })),
                 _marker: PhantomData,
-            }).collect()
+            })
+            .collect()
     }
 
     pub fn as_type(&self) -> &T {
@@ -484,16 +486,14 @@ where
                 Type::Ident(ref id) => {
                     // Replace `Ident` with the alias it resolves to so that a `TypeEnv` is not
                     // needed to resolve the type later on
-                    let replacement =
-                        self.group
-                            .iter()
-                            .position(|alias| alias.name == *id)
-                            .map(|index| {
-                                T::from(Type::Alias(AliasRef {
-                                    index: index,
-                                    group: self.group.clone(),
-                                }))
-                            });
+                    let replacement = self.group.iter().position(|alias| alias.name == *id).map(
+                        |index| {
+                            T::from(Type::Alias(AliasRef {
+                                index: index,
+                                group: self.group.clone(),
+                            }))
+                        },
+                    );
                     if replacement.is_none() {
                         info!("Alias group were not able to resolve an identifier");
                     }
@@ -694,8 +694,6 @@ pub enum Type<Id, T = ArcType<Id>> {
     Hole,
     /// An opaque type
     Opaque,
-    /// A type used to mark type errors
-    Error,
     /// A builtin type
     Builtin(BuiltinType),
     /// Universally quantified types
@@ -776,10 +774,6 @@ where
         T::from(Type::Opaque)
     }
 
-    pub fn error() -> T {
-        T::from(Type::Error)
-    }
-
     pub fn builtin(typ: BuiltinType) -> T {
         T::from(Type::Builtin(typ))
     }
@@ -844,7 +838,8 @@ where
                 .map(|(i, typ)| Field {
                     name: symbols.from_str(&format!("_{}", i)),
                     typ: typ,
-                }).collect(),
+                })
+                .collect(),
             Type::empty_row(),
         ))
     }
@@ -1041,7 +1036,6 @@ where
         let mut immediate_kind = match *self {
             Type::Function(_, _, _) => Cow::Owned(Kind::typ()),
             Type::App(ref t, ref args) => t.kind_(args.len()),
-            Type::Error => Cow::Owned(Kind::error()),
             Type::Hole | Type::Opaque | Type::Builtin(_) | Type::Record(_) | Type::Variant(_) => {
                 Cow::Owned(Kind::typ())
             }
@@ -1270,20 +1264,6 @@ impl<Id> ArcType<Id> {
     {
         match **self {
             Type::Generic(ref generic) => named_variables.get(&generic.id).cloned(),
-            Type::Forall(ref params, ref typ, ref vars) => {
-                let removed: AppVec<_> = params
-                    .iter()
-                    .flat_map(|param| named_variables.remove_entry(&param.id))
-                    .collect();
-
-                let new_typ = typ.skolemize_(named_variables);
-                let new_typ =
-                    new_typ.map(|typ| Type::forall_with_vars(params.clone(), typ, vars.clone()));
-
-                named_variables.extend(removed);
-
-                new_typ
-            }
             _ => walk_move_type_opt(
                 self,
                 &mut ControlVisitation(|typ: &ArcType<Id>| typ.skolemize_(named_variables)),
@@ -1438,7 +1418,8 @@ impl ArcType {
             .take_while(|&(l, r)| match **l {
                 Type::Generic(ref g) => g == r,
                 _ => false,
-            }).count();
+            })
+            .count();
 
         let typ = if params.len() <= allowed_missing_args + args.len() {
             // Remove the args at the end of the aliased type
@@ -1900,7 +1881,6 @@ where
 
         let doc = match **typ {
             Type::Hole => arena.text("_"),
-            Type::Error => arena.text("!"),
             Type::Opaque => arena.text("<opaque>"),
             Type::Forall(ref args, ref typ, _) => {
                 let doc = chain![arena;
@@ -2278,7 +2258,6 @@ where
         }
         Type::Hole
         | Type::Opaque
-        | Type::Error
         | Type::Builtin(_)
         | Type::Variable(_)
         | Type::Generic(_)
@@ -2325,7 +2304,6 @@ where
         }
         Type::Hole
         | Type::Opaque
-        | Type::Error
         | Type::Builtin(_)
         | Type::Variable(_)
         | Type::Generic(_)
@@ -2489,7 +2467,6 @@ where
         }
         Type::Hole
         | Type::Opaque
-        | Type::Error
         | Type::Builtin(_)
         | Type::Variable(_)
         | Type::Skolem(_)
@@ -2594,18 +2571,19 @@ where
                 .map(|field| Field {
                     name: field.name.clone(),
                     typ: Alias::from(translate_alias(&field.typ, &mut translate)),
-                }).collect(),
+                })
+                .collect(),
             fields
                 .iter()
                 .map(|field| Field {
                     name: field.name.clone(),
                     typ: translate(&field.typ),
-                }).collect(),
+                })
+                .collect(),
             translate(rest),
         ),
         Type::Hole => cache.hole(),
         Type::Opaque => cache.opaque(),
-        Type::Error => cache.error(),
         Type::Builtin(ref builtin) => cache.builtin_type(builtin.clone()),
         Type::Variable(ref var) => Type::variable(var.clone()),
         Type::Generic(ref gen) => Type::generic(gen.clone()),

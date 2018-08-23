@@ -342,8 +342,7 @@ impl<'a, 'b> ResolveImplicitsVisitor<'a, 'b> {
             constraint,
         }));
 
-        let state =
-            ::unify_type::State::new(&self.tc.environment, &self.tc.subs, &self.tc.type_cache);
+        let state = ::unify_type::State::new(&self.tc.environment, &self.tc.subs);
         ::unify_type::subsumes(
             &self.tc.subs,
             &mut ScopedMap::new(),

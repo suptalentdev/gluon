@@ -50,7 +50,6 @@ impl KindEnv for EmptyEnv<Symbol> {
 )]
 pub enum Kind {
     Hole,
-    Error,
     /// Representation for a kind which is yet to be inferred.
     Variable(u32),
     /// The simplest possible kind. All values in a program have this kind.
@@ -67,10 +66,6 @@ pub enum Kind {
 impl Kind {
     pub fn hole() -> ArcKind {
         ArcKind::new(Kind::Hole)
-    }
-
-    pub fn error() -> ArcKind {
-        ArcKind::new(Kind::Error)
     }
 
     pub fn variable(v: u32) -> ArcKind {
@@ -120,7 +115,6 @@ impl<'a> fmt::Display for DisplayKind<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self.1 {
             Kind::Hole => "_".fmt(f),
-            Kind::Error => "!".fmt(f),
             Kind::Variable(i) => i.fmt(f),
             Kind::Type => "Type".fmt(f),
             Kind::Row => "Row".fmt(f),
@@ -192,7 +186,7 @@ impl fmt::Display for ArcKind {
     }
 }
 
-type_cache! { KindCache() () { ArcKind, Kind } row hole error typ }
+type_cache! { KindCache() () { ArcKind, Kind } row hole typ }
 
 impl<'a, F: ?Sized> Walker<'a, ArcKind> for F
 where
@@ -213,6 +207,6 @@ where
             f.walk(a);
             f.walk(r);
         }
-        Kind::Hole | Kind::Error | Kind::Variable(_) | Kind::Type | Kind::Row => (),
+        Kind::Hole | Kind::Variable(_) | Kind::Type | Kind::Row => (),
     }
 }
