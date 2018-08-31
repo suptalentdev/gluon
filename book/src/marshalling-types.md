@@ -129,32 +129,32 @@ match data.tag() {
 
 To implement `Pushable`, we need to interact with Gluon's stack directly. The goal is to create
 a `Value` that represents our Rust value, and push it on the stack. In order to do that, we need to
-push the fields of our type first:
+get the `Value`s for the fields of our type. We do that by pushing them to the stack in reverse
+order and then popping the values from the stack:
 
 ```rust,ignore
-self.inner.name.push(vm, ctx)?
-self.inner.age.push(vm, ctx)?;
 self.inner.data.push(vm, ctx)?;
+self.inner.age.push(vm, ctx)?;
+self.inner.name.push(vm, ctx)?
+
+let fields = [ctx.stack.pop(), ctx.stack.pop(), ctx.stack.pop()];
 ```
 
-The `ActiveThread` we get passed has a `Context` that allows pushing values, but we can do even better and
-use the `record!` macro:
+The `Context` we get passed has a convenience method for quickly constructing a complex type.
+We can then push our final `Value`.
 
 ```rust,ignore
-(record!{
-    name => self.inner.name,
-    age => self.inner.age,
-    data => self.inner.data,
-}).push(ctx)
+let val = ctx.new_data(vm, 0, &fields)?;
+ctx.stack.push(val);
 ```
 
-If we were pushing an enum, we would have to use `Context::push_new_data` and manually specify the tag
-of the pushed variant as well as its number of fields (zero if it's a variant with no attached data).
+If we were pushing an enum, we would also have to make sure that we are passing the correct
+tag:
 
 ```rust,ignore
 let val = match an_enum {
-    Enum::VariantOne => ctx.context().push_new_data(vm, 0, num_fields_in_variant_one),
-    Enum::VariantTwo => ctx.context().push_new_data(vm, 1, num_fields_in_variant_two),
+    Enum::VariantOne => ctx.new_data(vm, 0, &fields),
+    Enum::VariantTwo => ctx.new_data(vm, 1, &fields),
 }?;
 ```
 
