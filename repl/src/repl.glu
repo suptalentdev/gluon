@@ -137,7 +137,10 @@ let cmd_parser : Parser { cmd : String, arg : String } =
         skip_many1,
         token,
         spaces,
-        letter } = import! std.parser
+        letter,
+        monad = { flat_map },
+        alternative,
+        applicative } = import! std.parser
     let { (<|>) } = import! std.alternative
 
     let word = recognize (skip_many1 letter)

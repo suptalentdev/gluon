@@ -3,9 +3,6 @@ extern crate env_logger;
 extern crate serde_derive;
 #[macro_use]
 extern crate collect_mac;
-extern crate failure;
-#[macro_use]
-extern crate failure_derive;
 extern crate futures;
 extern crate futures_cpupool;
 extern crate gluon;
@@ -24,52 +21,26 @@ use gluon::vm::api::{Getable, Hole, OpaqueValue, OwnedFunction, VmType};
 
 use gluon::{new_vm, Compiler, RootedThread, Thread};
 
+use std::error::Error;
+use std::fmt;
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use futures::{future, stream, Future, Stream};
-use tokio::runtime::current_thread::Runtime;
 
-#[derive(Debug, Fail)]
-enum Error {
-    #[fail(display = "{}", _0)]
-    Error(failure::Error),
-    #[fail(display = "{}", _0)]
-    Io(io::Error),
-    #[fail(display = "{}", _0)]
-    Gluon(gluon::Error),
-    #[fail(display = "{}", _0)]
-    Message(String),
-}
+#[derive(Debug)]
+pub struct StringError(String);
 
-impl From<String> for Error {
-    fn from(d: String) -> Error {
-        Error::Message(d)
+impl fmt::Display for StringError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
-impl<'a> From<&'a str> for Error {
-    fn from(d: &'a str) -> Error {
-        Error::Message(d.to_string())
-    }
-}
-
-impl From<failure::Error> for Error {
-    fn from(d: failure::Error) -> Error {
-        Error::Error(d)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(d: io::Error) -> Error {
-        Error::Io(d)
-    }
-}
-
-impl From<gluon::Error> for Error {
-    fn from(d: gluon::Error) -> Error {
-        Error::Gluon(d)
+impl Error for StringError {
+    fn description(&self) -> &str {
+        &self.0
     }
 }
 
@@ -79,7 +50,7 @@ fn main() {
     }
 }
 
-fn test_files(path: &str) -> Result<Vec<PathBuf>, Error> {
+fn test_files(path: &str) -> Result<Vec<PathBuf>, Box<Error>> {
     let paths: Vec<_> = walkdir::WalkDir::new(path)
         .into_iter()
         .filter_map(|f| {
@@ -91,7 +62,8 @@ fn test_files(path: &str) -> Result<Vec<PathBuf>, Error> {
                     None
                 }
             })
-        }).collect();
+        })
+        .collect();
     assert!(!paths.is_empty(), "Expected test files");
     Ok(paths)
 }
@@ -131,9 +103,9 @@ struct GluonTestable<F>(F);
 
 impl<F> tensile::Testable for GluonTestable<F>
 where
-    F: Future<Item = (), Error = Error> + Send + Sync + 'static,
+    F: Future<Item = (), Error = String> + Send + Sync + 'static,
 {
-    type Error = Error;
+    type Error = String;
 
     fn test(self) -> tensile::TestFuture<Self::Error> {
         Box::new(self.0)
@@ -141,7 +113,7 @@ where
 }
 
 impl TestCase {
-    fn into_tensile_test(self) -> tensile::Test<Error> {
+    fn into_tensile_test(self) -> tensile::Test<String> {
         match self {
             TestCase::Test { name, test } => {
                 let child_thread = test.vm().new_thread().unwrap();
@@ -159,8 +131,8 @@ impl TestCase {
                                     action.call_async(test)
                                 },
                             )
-                        }).map_err(gluon::Error::from)
-                        .map_err(Error::from);
+                        })
+                        .map_err(|err| err.to_string());
                     GluonTestable(::std::panic::AssertUnwindSafe(future))
                 })
             }
@@ -172,13 +144,16 @@ impl TestCase {
     }
 }
 
-fn make_test<'t>(vm: &'t Thread, name: &str, filename: &Path) -> Result<TestCase, Error> {
+fn make_test<'t>(vm: &'t Thread, name: &str, filename: &Path) -> Result<TestCase, String> {
     let mut compiler = Compiler::new();
 
-    let mut file = File::open(&filename)?;
+    let mut file = File::open(&filename).map_err(|err| err.to_string())?;
     let mut text = String::new();
-    file.read_to_string(&mut text)?;
-    let (De(test), _) = compiler.run_expr(&vm, &name, &text)?;
+    file.read_to_string(&mut text)
+        .map_err(|err| err.to_string())?;
+    let (De(test), _) = compiler
+        .run_expr(&vm, &name, &text)
+        .map_err(|err| err.to_string())?;
     Ok(test)
 }
 
@@ -186,13 +161,16 @@ fn run_file<'t>(
     vm: &'t Thread,
     name: &str,
     filename: &Path,
-) -> Result<(OpaqueValue<&'t Thread, Hole>, ArcType), Error> {
+) -> Result<(OpaqueValue<&'t Thread, Hole>, ArcType), String> {
     let mut compiler = Compiler::new();
 
-    let mut file = File::open(&filename)?;
+    let mut file = File::open(&filename).map_err(|err| err.to_string())?;
     let mut text = String::new();
-    file.read_to_string(&mut text)?;
-    Ok(compiler.run_expr::<OpaqueValue<&Thread, Hole>>(&vm, &name, &text)?)
+    file.read_to_string(&mut text)
+        .map_err(|err| err.to_string())?;
+    compiler
+        .run_expr::<OpaqueValue<&Thread, Hole>>(&vm, &name, &text)
+        .map_err(|err| err.to_string())
 }
 
 fn gather_doc_tests(expr: &SpannedExpr<Symbol>) -> Vec<(String, String)> {
@@ -275,14 +253,17 @@ fn run_doc_tests<'t>(
     vm: &'t Thread,
     name: &str,
     filename: &Path,
-) -> Result<Vec<tensile::Test<Error>>, Error> {
+) -> Result<Vec<tensile::Test<String>>, String> {
     let mut compiler = Compiler::new();
 
-    let mut file = File::open(&filename)?;
+    let mut file = File::open(&filename).map_err(|err| err.to_string())?;
     let mut text = String::new();
-    file.read_to_string(&mut text)?;
+    file.read_to_string(&mut text)
+        .map_err(|err| err.to_string())?;
 
-    let (expr, _, _) = compiler.extract_metadata(&vm, &name, &text)?;
+    let (expr, _, _) = compiler
+        .extract_metadata(&vm, &name, &text)
+        .map_err(|err| err.to_string())?;
 
     let tests = gather_doc_tests(&expr);
     Ok(tests
@@ -290,17 +271,16 @@ fn run_doc_tests<'t>(
         .map(move |(test_name, test_source)| {
             let vm = vm.new_thread().unwrap();
             tensile::test(test_name.clone(), move || {
-                Compiler::new().run_expr::<OpaqueValue<&Thread, Hole>>(
-                    &vm,
-                    &test_name,
-                    &test_source,
-                )?;
+                Compiler::new()
+                    .run_expr::<OpaqueValue<&Thread, Hole>>(&vm, &test_name, &test_source)
+                    .map_err(|err| err.to_string())?;
                 Ok(())
             })
-        }).collect())
+        })
+        .collect())
 }
 
-fn main_() -> Result<(), Error> {
+fn main_() -> Result<(), Box<Error>> {
     let _ = ::env_logger::try_init();
     let args: Vec<_> = ::std::env::args().collect();
     let filter = if args.len() > 1 && args.last().unwrap() != "main" {
@@ -332,13 +312,10 @@ fn main_() -> Result<(), Error> {
 
             let name2 = name.clone();
             pool.spawn_fn(move || make_test(&vm, &name, &filename))
-                .then(|result| -> Result<_, Error> {
+                .then(|result| -> Result<_, String> {
                     Ok(match result {
                         Ok(test) => test.into_tensile_test(),
-                        Err(err) => {
-                            let err = ::std::panic::AssertUnwindSafe(err);
-                            tensile::test(name2, || Err(err.0))
-                        }
+                        Err(err) => tensile::test(name2, || Err(err)),
                     })
                 })
         }),
@@ -349,8 +326,8 @@ fn main_() -> Result<(), Error> {
         .into_iter()
         .filter(|filename| !filename.to_string_lossy().contains("deps"));
 
-    let fail_tests = iter
-        .filter_map(|filename| {
+    let fail_tests =
+        iter.filter_map(|filename| {
             let name = filename_to_module(filename.to_str().unwrap_or("<unknown>"));
 
             match filter {
@@ -358,19 +335,20 @@ fn main_() -> Result<(), Error> {
                 _ => Some((filename, name)),
             }
         }).map(|(filename, name)| {
-            let vm = vm.new_thread().unwrap();
+                let vm = vm.new_thread().unwrap();
 
-            tensile::test(name.clone(), move || -> Result<(), Error> {
-                match run_file(&vm, &name, &filename) {
-                    Ok(err) => Err(format!(
-                        "Expected test '{}' to fail\n{:?}",
-                        filename.to_str().unwrap(),
-                        err.0,
-                    ).into()),
-                    Err(_) => Ok(()),
-                }
+                tensile::test(name.clone(), move || -> Result<(), String> {
+                    match run_file(&vm, &name, &filename) {
+                        Ok(err) => Err(format!(
+                            "Expected test '{}' to fail\n{:?}",
+                            filename.to_str().unwrap(),
+                            err.0,
+                        )),
+                        Err(_) => Ok(()),
+                    }
+                })
             })
-        }).collect();
+            .collect();
 
     let doc_tests = test_files("std")?
         .into_iter()
@@ -381,30 +359,26 @@ fn main_() -> Result<(), Error> {
                 Some(ref filter) if file_filter && !name.contains(&filter[..]) => None,
                 _ => Some((filename, name)),
             }
-        }).map(|(filename, name)| {
+        })
+        .map(|(filename, name)| {
             let vm = vm.new_thread().unwrap();
             match run_doc_tests(&vm, &name, &filename) {
                 Ok(tests) => tensile::group(name.clone(), tests),
-                Err(err) => {
-                    let err = ::std::panic::AssertUnwindSafe(err);
-                    tensile::test(name.clone(), || Err(err.0))
-                }
+                Err(err) => tensile::test(name.clone(), || Err(err)),
             }
-        }).collect();
+        })
+        .collect();
 
-    let mut runtime = Runtime::new()?;
-    runtime.block_on(future::lazy(|| {
-        tensile::console_runner(
-            tensile::group(
-                "main",
-                vec![
-                    tensile::group("pass", pass_tests),
-                    tensile::group("fail", fail_tests),
-                    tensile::group("doc", doc_tests),
-                ],
-            ),
-            &tensile::Options::default().filter(filter.map_or("", |s| &s[..])),
-        )
-    }))?;
+    tensile::console_runner(
+        tensile::group(
+            "main",
+            vec![
+                tensile::group("pass", pass_tests),
+                tensile::group("fail", fail_tests),
+                tensile::group("doc", doc_tests),
+            ],
+        ),
+        &tensile::Options::default().filter(filter.map_or("", |s| &s[..])),
+    )?;
     Ok(())
 }

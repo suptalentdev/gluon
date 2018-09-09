@@ -150,11 +150,6 @@ fn repl() {
 }
 
 #[test]
-fn json() {
-    test_format("std/json/de.glu");
-}
-
-#[test]
 fn dont_add_newline_for_let_literal() {
     let expr = r#"
 let x = 1
@@ -490,8 +485,8 @@ Test
 #[derive(Show)]
 type Test =
     | Test
-rec let show_Test : Show Test =
-    rec let show_ x : Test -> String =
+let show_Test : Show Test =
+    let show_ x : Test -> String =
         match x with
         | Test -> "Test"
     { show = show_ }
@@ -512,8 +507,8 @@ End
 type Recursive =
     | End
     | Rec Recursive
-rec let eq_Recursive : Eq Recursive =
-    rec let eq l r : Recursive -> Recursive -> _ =
+let eq_Recursive : Eq Recursive =
+    let eq l r : Recursive -> Recursive -> _ =
         match (l, r) with
         | (End, End) -> True
         | (Rec arg_l, Rec arg_r) -> eq arg_l arg_r
@@ -525,7 +520,7 @@ End
 }
 
 #[test]
-fn derive_parameterized_expanded() {
+fn derive_parameterized_expended() {
     let expr = r#"
 #[derive(Show)]
 type Test a =
@@ -536,51 +531,10 @@ Test 1
 #[derive(Show)]
 type Test a =
     | Test a
-rec let show_Test : [Show a] -> Show (Test a) =
-    rec let show_ x : Test a -> String =
-        match x with
-        | Test arg_0 -> "Test" ++ " " ++ "(" ++ show arg_0 ++ ")"
-    { show = show_ }
-Test 1
-"#;
-    assert_diff!(&format_expr_expanded(expr).unwrap(), expected, "\n", 0);
-}
-
-#[test]
-fn derive_show_recursive_expanded() {
-    let expr = r#"
-rec
-#[derive(Show)]
-type Test a =
-    | Test (Test2 a)
-#[derive(Show)]
-type Test2 a =
-    | Test2 (Test a)
-    | Nil
-in
-Test 1
-"#;
-    let expected = r#"
-rec
-#[derive(Show)]
-type Test a =
-    | Test (Test2 a)
-#[derive(Show)]
-type Test2 a =
-    | Test2 (Test a)
-    | Nil
-in
-rec
 let show_Test : [Show a] -> Show (Test a) =
-    rec let show_ x : Test a -> String =
+    let show_ x : Test a -> String =
         match x with
         | Test arg_0 -> "Test" ++ " " ++ "(" ++ show arg_0 ++ ")"
-    { show = show_ }
-let show_Test2 : [Show a] -> Show (Test2 a) =
-    rec let show_ x : Test2 a -> String =
-        match x with
-        | Test2 arg_0 -> "Test2" ++ " " ++ "(" ++ show arg_0 ++ ")"
-        | Nil -> "Nil"
     { show = show_ }
 Test 1
 "#;
@@ -597,7 +551,7 @@ type Record = { x : Int }
     let expected = r#"
 #[derive(Deserialize)]
 type Record = { x : Int }
-rec let deserialize_Record : Deserialize Record =
+let deserialize_Record : Deserialize Record =
     let { ValueDeserializer } = import! std.json.de
     let { map } = import! std.functor
     let { (<*>) } = import! std.applicative
@@ -619,7 +573,7 @@ type Record = { x : Int, y : Float }
     let expected = r#"
 #[derive(Deserialize)]
 type Record = { x : Int, y : Float }
-rec let deserialize_Record : Deserialize Record =
+let deserialize_Record : Deserialize Record =
     let { ValueDeserializer } = import! std.json.de
     let { map } = import! std.functor
     let { (<*>) } = import! std.applicative
@@ -643,16 +597,16 @@ type Record = { x : Int }
     let expected = r#"
 #[derive(Serialize)]
 type Record = { x : Int }
-rec let serialize_Record : Serialize Record =
+let serialize_Record : Serialize Record =
     let { ValueSerializer, Value, serialize } = import! std.json.ser
     let { map } = import! std.functor
     let { (<*>) } = import! std.applicative
     let { singleton, empty, ? } = import! std.map
     let { (<>) } = import! std.semigroup
-    let serialize_ x : Record -> _ =
+    let serialize_ x : ValueSerializer Record =
         match x with
         | { x = x } -> map (\x -> Object (singleton "x" x)) (serialize x)
-    { serialize = serialize_ }
+    serialize_
 ()
 "#;
     assert_diff!(&format_expr_expanded(expr).unwrap(), expected, "\n", 0);
@@ -670,17 +624,17 @@ type Variant = | Int Int | String String
 type Variant =
     | Int Int
     | String String
-rec let serialize_Variant : Serialize Variant =
+let serialize_Variant : Serialize Variant =
     let { ValueSerializer, Value, serialize } = import! std.json.ser
     let { map } = import! std.functor
     let { (<*>) } = import! std.applicative
     let { singleton, empty, ? } = import! std.map
     let { (<>) } = import! std.semigroup
-    let serialize_ x : Variant -> _ =
+    let serialize_ x : ValueSerializer Variant =
         match x with
         | Int arg_0 -> serialize arg_0
         | String arg_0 -> serialize arg_0
-    { serialize = serialize_ }
+    serialize_
 ()
 "#;
     assert_diff!(&format_expr_expanded(expr).unwrap(), expected, "\n", 0);

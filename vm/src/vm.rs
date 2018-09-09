@@ -416,10 +416,6 @@ impl GlobalVmStateBuilder {
 }
 
 impl GlobalVmState {
-    pub fn new() -> Self {
-        GlobalVmStateBuilder::new().build()
-    }
-
     fn add_types(&mut self) -> StdResult<(), (TypeId, ArcType)> {
         use api::generic::A;
         use api::Generic;

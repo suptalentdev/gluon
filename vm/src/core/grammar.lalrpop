@@ -85,29 +85,21 @@ AllocExpr: &'a Expr<'a> = {
 };
 
 LetBinding: LetBinding<'a> = {
-    <closures: RecLetBinding+> => {
-        LetBinding {
-            name: closures[0].name.clone(),
-            expr: Named::Recursive(closures),
-            span_start: BytePos::default(),
-        }
-    },
-
-    "let" <name: Identifier> "=" <expr: AllocExpr> => LetBinding {
+    <name: Identifier> "=" <expr: AllocExpr> => LetBinding {
         name: TypedIdent::new(name),
         expr: Named::Expr(expr),
         span_start: BytePos::default(),
-    }
-};
-
-RecLetBinding: Closure<'a> = {
-    "rec" "let" <name: Identifier> <args: Identifier*> "=" <expr: AllocExpr> =>
-        Closure {
+    },
+    <name: Identifier> <args: Identifier+> "=" <expr: AllocExpr> => LetBinding {
+        name: TypedIdent::new(name.clone()),
+        expr: Named::Recursive(vec![Closure {
             pos: BytePos::default(),
             name: TypedIdent::new(name),
             args: args.into_iter().map(TypedIdent::new).collect(),
             expr,
-        }
+        }]),
+        span_start: BytePos::default(),
+    }
 };
 
 pub Expr: Expr<'a> = {
@@ -120,7 +112,7 @@ pub Expr: Expr<'a> = {
             f => Expr::Call(allocator.arena.alloc(f), args)
         }
     },
-    <bind: LetBinding> "in" <expr: AllocExpr> => {
+    "let" <bind: LetBinding> "in" <expr: AllocExpr> => {
         Expr::Let(bind, expr)
     },
     "match" <expr: AllocExpr> "with" <alts: Alternative+> "end" =>

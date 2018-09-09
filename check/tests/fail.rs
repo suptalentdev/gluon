@@ -116,9 +116,8 @@ type Test2 = Test
 fn mutually_recursive_types_error() {
     let _ = env_logger::try_init();
     let text = r#"
-rec
 type List a = | Empty | Node (a (Data a))
-type Data a = { value: a, list: List a }
+and Data a = { value: a, list: List a }
 in 1
 "#;
     let result = support::typecheck(text);
@@ -252,7 +251,7 @@ fn recursive_types_with_differing_aliases() {
 type Option a = | None | Some a
 let none = None
 type R1 = Option R1
-type R2 = Option R2
+and R2 = Option R2
 
 let x: R1 = none
 let y: R2 = x
@@ -380,7 +379,7 @@ let Test = 1
 1
 "#;
     let result = support::typecheck(text);
-    assert_err!(result, Message(..));
+    assert_err!(result, UndefinedVariable(..));
 }
 
 #[test]

@@ -644,7 +644,7 @@ type List a = | Cons a
 
 let cons x = Cons x
 
-let make x : b -> _ =
+and make x : b -> _ =
     { x, cons }
 make 1
 "#;
@@ -899,9 +899,8 @@ fn mutually_recursive_with_type_signature() {
     let _ = ::env_logger::try_init();
 
     let text = r#"
-rec
 let test x : a -> () = test2 x
-let test2 x : a -> () = test x
+and test2 x : a -> () = test x
 ()
 "#;
     let result = support::typecheck(text);

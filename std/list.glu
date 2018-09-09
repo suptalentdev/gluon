@@ -39,7 +39,7 @@ type List a =
 /// ```
 let of xs : Array a -> List a =
     let len = array.len xs
-    rec let of_ i ys =
+    let of_ i ys =
         if i == 0 then
             ys
         else
@@ -48,7 +48,7 @@ let of xs : Array a -> List a =
     of_ len Nil
 
 let semigroup : Semigroup (List a) =
-    rec let append xs ys =
+    let append xs ys =
         match xs with
         | Cons x zs -> Cons x (append zs ys)
         | Nil -> ys
@@ -61,7 +61,7 @@ let monoid : Monoid (List a) = {
 }
 
 let ord ?ord : [Ord a] -> Ord (List a) =
-    rec let list_cmp l r =
+    let list_cmp l r =
         match (l, r) with
         | (Nil, Nil) -> EQ
         | (Cons x xs, Cons y ys) ->
@@ -73,7 +73,7 @@ let ord ?ord : [Ord a] -> Ord (List a) =
     { eq = eq_List, compare = list_cmp }
 
 let functor : Functor List =
-    rec let map f xs =
+    let map f xs =
         match xs with
         | Cons y ys -> Cons (f y) (map f ys)
         | Nil -> Nil
@@ -81,35 +81,30 @@ let functor : Functor List =
 
 let applicative : Applicative List =
 
-    rec let apply f xs =
+    let apply f xs =
         match f with
         | Cons g gs -> (functor.map g xs) <> (apply gs xs)
         | Nil -> Nil
-    in
     let wrap x = Cons x Nil
 
     { functor = functor, apply, wrap }
 
 let many ?alt x : [Alternative f] -> f a -> f (List a) =
 
-    rec
     let many_v _ =
         some_v () <|> wrap Nil
-    let some_v _ =
+    and some_v _ =
         let { ? } = alt.applicative
         map (\h l -> Cons h l) x <*> many_v ()
-    in
     many_v ()
 
 let some ?alt x : [Alternative f] -> f a -> f (List a) =
 
-    rec
     let many_v _ =
         some_v () <|> wrap Nil
-    let some_v _ =
+    and some_v _ =
         let { ? } = alt.applicative
         map (\h l -> Cons h l) x <*> many_v ()
-    in
     some_v ()
 
 let alternative : Alternative List = {
@@ -119,7 +114,7 @@ let alternative : Alternative List = {
 }
 
 let monad : Monad List =
-    rec let flat_map f xs =
+    let flat_map f xs =
         match xs with
         | Cons x ys -> (f x) <> (flat_map f ys)
         | Nil -> Nil
@@ -130,7 +125,7 @@ let show ?d : [Show a] -> Show (List a) =
 
     {
         show = \xs ->
-            rec let show_elems ys =
+            let show_elems ys =
                 match ys with
                 | Cons y ys2 ->
                     match ys2 with
@@ -142,12 +137,12 @@ let show ?d : [Show a] -> Show (List a) =
     }
 
 let foldable : Foldable List =
-    rec let foldr f x xs =
+    let foldr f x xs =
         match xs with
         | Cons y ys -> f y (foldr f x ys)
         | Nil -> x
 
-    rec let foldl f x xs =
+    let foldl f x xs =
         match xs with
         | Cons y ys -> foldl f (f x y) ys
         | Nil -> x
@@ -172,14 +167,14 @@ let traversable : Traversable List = {
 /// assert (list.filter (\x -> x /= 2) (list.of [1, 2, 3]) == list.of [1, 3])
 /// assert (list.filter (\x -> False) (list.of [1, 2, 3]) == Nil)
 /// ```
-rec let filter predicate xs : (a -> Bool) -> List a -> List a =
+let filter predicate xs : (a -> Bool) -> List a -> List a =
     match xs with
     | Nil -> Nil
     | Cons y ys ->
         let rest = filter predicate ys
         if predicate y then Cons y rest else rest
 
-rec let scan compare xs less equal greater : (a -> Ordering)
+let scan compare xs less equal greater : (a -> Ordering)
         -> List a
         -> List a
         -> List a
@@ -200,7 +195,7 @@ rec let scan compare xs less equal greater : (a -> Ordering)
 /// let { assert } = import! std.test
 /// assert (list.sort (list.of [2, 1, 3]) == list.of [1, 2, 3])
 /// ```
-rec let sort xs : [Ord a] -> List a -> List a =
+let sort xs : [Ord a] -> List a -> List a =
     match xs with
     | Nil -> Nil
     | Cons pivot ys ->

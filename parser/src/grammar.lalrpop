@@ -1,7 +1,7 @@
 use itertools::{Either, Itertools};
 
 use base::ast::{Alternative, Argument, Array, AstType, Do, Expr, ExprField, Lambda, Literal, Pattern,
-    PatternField, SpannedExpr, SpannedIdent, TypeBinding, TypedIdent, ValueBinding, ValueBindings};
+    PatternField, SpannedExpr, SpannedIdent, TypeBinding, TypedIdent, ValueBinding};
 use base::kind::{ArcKind, Kind};
 use base::pos::{self, BytePos, Spanned};
 use base::types::{Alias, AliasData, ArcType, ArgType, BuiltinType, Field, Generic, Type, TypeCache};
@@ -33,7 +33,7 @@ extern {
         "float literal" => Token::FloatLiteral(<f64>),
         "documentation comment" => Token::DocComment(<Comment>),
 
-        "rec" => Token::Rec,
+        "and" => Token::And,
         "else" => Token::Else,
         "forall" => Token::Forall,
         "if" => Token::If,
@@ -245,7 +245,7 @@ VariantField: (Id, Vec<AstType<Id>>) =
     "|" <Ident> <AtomicType*> => (<>);
 
 TypeBinding: TypeBinding<Id> = {
-    <metadata: Metadata?> "type" <id: Sp<Ident>> <params: TypeParam*> "=" <row: Sp<VariantField+>> => {
+    <id: Sp<Ident>> <params: TypeParam*> "=" <row: Sp<VariantField+>> => {
         if !env.string(&id.value).starts_with(char::is_uppercase) {
             errors.push(::lalrpop_util::ParseError::User {
                 error: pos::spanned(id.span, format!("A type must start with an uppercase letter").into()),
@@ -261,7 +261,7 @@ TypeBinding: TypeBinding<Id> = {
             .collect();
 
         TypeBinding {
-            metadata: metadata.unwrap_or_default(),
+            metadata: Metadata::default(),
             name: id.clone(),
             alias: pos::spanned(
                 row_span,
@@ -278,7 +278,7 @@ TypeBinding: TypeBinding<Id> = {
         }
     },
 
-    <metadata: Metadata?> "type" <id: Sp<Ident>> <params: TypeParam*> "=" <body: Sp<Type>> => {
+    <id: Sp<Ident>> <params: TypeParam*> "=" <body: Sp<Type>> => {
         if !env.string(&id.value).starts_with(char::is_uppercase) {
             errors.push(::lalrpop_util::ParseError::User {
                 error: pos::spanned(id.span, format!("A type must start with an uppercase letter").into()),
@@ -286,7 +286,7 @@ TypeBinding: TypeBinding<Id> = {
         }
 
         TypeBinding {
-            metadata: metadata.unwrap_or_default(),
+            metadata: Metadata::default(),
             name: id.clone(),
             alias: pos::spanned(body.span, AliasData::new(id.value.clone(), params, body.value)),
             finalized_alias: None,
@@ -400,8 +400,8 @@ FieldPattern : FieldPattern<Id> = {
 };
 
 AtomicPattern: Pattern<Id> = {
-    <l: @L> <id: Ident> <r: @R> "@" <pat: Sp<AtomicPattern>> =>
-        Pattern::As(pos::spanned2(l, r, id), Box::new(pat)),
+    <id: Ident> "@" <pat: Sp<AtomicPattern>> =>
+        Pattern::As(id, Box::new(pat)),
 
     <id: Ident> =>
         if env.string(&id).starts_with(char::is_uppercase) {
@@ -533,45 +533,24 @@ ValueArgument: Argument<SpannedIdent<Id>> = {
 };
 
 ValueBinding: ValueBinding<Id> = {
-    <metadata: Metadata?> <bind: PlainValueBinding> => {
-        let mut bind = bind;
-        bind.metadata = metadata.unwrap_or_default();
-        bind
-    }
-};
-
-PlainValueBinding: ValueBinding<Id> = {
-    "let" <name: Sp<AtomicPattern>> <typ: (":" <Type>)?> "=" <expr: SpExpr> => {
+    <name: Sp<AtomicPattern>> <typ: (":" <Type>)?> "=" <body: SpExpr> =>
         ValueBinding {
             metadata: Metadata::default(),
-            name,
-            typ,
+            name: name,
+            typ: typ,
             resolved_type: type_cache.hole(),
             args: vec![],
-            expr,
-        }
-    },
+            expr: body,
+        },
 
-    "let" <name: Sp<Ident>> <args: ValueArgument+> <typ: (":" <Type>)?> "=" <expr: SpExpr> =>
+    <name: Sp<Ident>> <args: ValueArgument+> <typ: (":" <Type>)?> "=" <body: SpExpr> =>
         ValueBinding {
             metadata: Metadata::default(),
             name: name.map(|name| new_ident(type_cache, name)).map(Pattern::Ident),
-            typ,
+            typ: typ,
             resolved_type: type_cache.hole(),
             args,
-            expr,
-        },
-};
-
-RecursiveValueBinding: ValueBinding<Id> = {
-    <metadata: Metadata?> "let" <name: Sp<Ident>> <args: ValueArgument*> <typ: (":" <Type>)?> "=" <expr: SpExpr> =>
-        ValueBinding {
-            metadata: metadata.unwrap_or_default(),
-            name: name.map(|name| new_ident(type_cache, name)).map(Pattern::Ident),
-            typ,
-            resolved_type: type_cache.hole(),
-            args,
-            expr,
+            expr: body,
         },
 };
 
@@ -674,14 +653,19 @@ InfixExpr = {
         Expr::Infix { lhs: Box::new(lhs), op, rhs: Box::new(super::shrink_hidden_spans(rhs)), implicit_args: Vec::new(), },
 };
 
+AndValueBinding: ValueBinding<Id> =
+    <metadata: Metadata?> "and" <binding: ValueBinding> => {
+        let mut binding = binding;
+        binding.metadata = metadata.unwrap_or_default();
+        binding
+    };
 
-InExpr: SpannedExpr<Id> = {
-    "in" <SpExpr>,
-    <err: Sp<!>> => {
-        errors.push(err.value.error);
-        pos::spanned(err.span, Expr::Error(None))
-    }
-};
+AndTypeBinding: TypeBinding<Id> =
+    <metadata: Metadata?> "and" <binding: TypeBinding> => {
+        let mut binding = binding;
+        binding.metadata = metadata.unwrap_or_default();
+        binding
+    };
 
 Expr: Expr<Id> = {
     InfixExpr,
@@ -692,31 +676,25 @@ Expr: Expr<Id> = {
     "match" <body: SpExpr> "with" <arms: Alternative+> =>
         Expr::Match(Box::new(body), arms),
 
-    <binding: ValueBinding> <body: InExpr> => {
-        Expr::LetBindings(ValueBindings::Plain(Box::new(binding)), Box::new(body))
-    },
-
-    <binding: TypeBinding> <body: InExpr> => {
-        Expr::TypeBindings(vec![binding], Box::new(body))
-    },
-
-    <metadata: Metadata?> "rec" <bindings: RecursiveValueBinding+> <body: InExpr> => {
+    <metadata: Metadata?> "let" <first: ValueBinding> <bindings: AndValueBinding*> SkipExtraTokens "in" <body: SpExpr> => {
+        let mut first = first;
+        first.metadata = metadata.unwrap_or_default();
         let mut bindings = bindings;
-        if let Some(metadata) = metadata {
-            bindings[0].metadata = metadata;
-        }
-        Expr::LetBindings(ValueBindings::Recursive(bindings), Box::new(body))
+        bindings.insert(0, first);
+
+        Expr::LetBindings(bindings, Box::new(body))
     },
 
-    <metadata: Metadata?> "rec" <bindings: TypeBinding+> <body: InExpr> => {
+    <metadata: Metadata?> "type" <first: TypeBinding> <bindings: AndTypeBinding*> SkipExtraTokens "in" <body: SpExpr> => {
+        let mut first = first;
+        first.metadata = metadata.unwrap_or_default();
         let mut bindings = bindings;
-        if let Some(metadata) = metadata {
-            bindings[0].metadata = metadata;
-        }
+        bindings.insert(0, first);
+
         Expr::TypeBindings(bindings, Box::new(body))
     },
 
-    "do" <id: SpannedIdent> "=" <bound: SpExpr> <body: InExpr> => {
+    "do" <id: SpannedIdent> "=" <bound: SpExpr> "in" <body: SpExpr> => {
         Expr::Do(Do { id, bound: Box::new(bound), body: Box::new(body), flat_map_id: None })
     },
 
@@ -746,6 +724,8 @@ pub TopExpr: SpannedExpr<Id> = {
 
 pub ReplLine: Option<ReplLine<Id>> = {
     <TopExpr> => Some(ReplLine::Expr(<>)),
-    "block open" <PlainValueBinding> "block close" => Some(ReplLine::Let(<>)),
+    "block open" "let" <ValueBinding> SkipExtraTokens
+        // Ugh but I just need the parser to be happy for now
+        "in" "block close" "block close" "block open" "block open" => Some(ReplLine::Let(<>)),
     => None,
 };

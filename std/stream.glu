@@ -11,12 +11,11 @@ let { Semigroup, (<>) } = import! std.semigroup
 let { Foldable } = import! std.foldable
 let { lazy, force } = import! std.lazy
 
-rec
 type Stream_ a =
     | Value a (Stream a)
     | Empty
-type Stream a = Lazy (Stream_ a)
-in
+and Stream a = Lazy (Stream_ a)
+
 let empty : Stream a = lazy (\_ -> Empty)
 
 let from f : (Int -> Option a) -> Stream a =

@@ -20,15 +20,6 @@ pub struct ScopedMap<K: Eq + Hash, V> {
     scopes: Vec<Option<K>>,
 }
 
-impl<K: Eq + Hash, V> Default for ScopedMap<K, V> {
-    fn default() -> Self {
-        ScopedMap {
-            map: FnvMap::default(),
-            scopes: Vec::default(),
-        }
-    }
-}
-
 impl<K, V> fmt::Debug for ScopedMap<K, V>
 where
     K: Eq + Hash + fmt::Debug + Clone,
@@ -42,7 +33,10 @@ where
 #[allow(dead_code)]
 impl<K: Eq + Hash + Clone, V> ScopedMap<K, V> {
     pub fn new() -> ScopedMap<K, V> {
-        ScopedMap::default()
+        ScopedMap {
+            map: FnvMap::default(),
+            scopes: Vec::new(),
+        }
     }
 
     /// Introduces a new scope
@@ -60,21 +54,12 @@ impl<K: Eq + Hash + Clone, V> ScopedMap<K, V> {
     }
 
     /// Removes a previously inserted value from the map.
-    pub fn remove<Q>(&mut self, k: &Q) -> bool
-    where
-        K: Borrow<Q>,
-        Q: Eq + Hash,
-        K: ::std::fmt::Debug,
-        V: ::std::fmt::Debug,
-    {
+    pub fn remove(&mut self, k: &K) -> bool {
         match self.map.get_mut(k).map(|x| x.pop()) {
             Some(..) => {
                 let mut i = self.scopes.len() as isize - 1;
                 while i >= 0 {
-                    if self.scopes[i as usize]
-                        .as_ref()
-                        .map_or(false, |x| x.borrow() == k)
-                    {
+                    if self.scopes[i as usize].as_ref().map_or(false, |x| x == k) {
                         self.scopes.remove(i as usize);
                     }
                     i -= 1;
@@ -86,14 +71,10 @@ impl<K: Eq + Hash + Clone, V> ScopedMap<K, V> {
     }
 
     /// Returns true if the key has a value declared in the last declared scope
-    pub fn in_current_scope<Q>(&self, k: &Q) -> bool
-    where
-        K: Borrow<Q>,
-        Q: Eq + Hash,
-    {
+    pub fn in_current_scope(&self, k: &K) -> bool {
         for n in self.scopes.iter().rev() {
             match *n {
-                Some(ref name) if name.borrow() == k => return true,
+                Some(ref name) if name == k => return true,
                 None => break,
                 _ => (),
             }
@@ -117,14 +98,6 @@ impl<K: Eq + Hash + Clone, V> ScopedMap<K, V> {
         Q: Eq + Hash,
     {
         self.map.get(k).map(|x| &x[..])
-    }
-
-    pub fn contains_key<'a, Q: ?Sized>(&'a self, k: &Q) -> bool
-    where
-        K: Borrow<Q>,
-        Q: Eq + Hash,
-    {
-        self.get(k).is_some()
     }
 
     /// Returns the number of elements in the container.

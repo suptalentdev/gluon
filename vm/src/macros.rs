@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 
 use futures::{stream, Future, Stream};
 
-use base::ast::{self, Expr, MutVisitor, SpannedExpr, ValueBindings};
+use base::ast::{self, Expr, MutVisitor, SpannedExpr};
 use base::error::Errors as BaseErrors;
 use base::fnv::FnvMap;
 use base::pos;
@@ -144,7 +144,8 @@ impl<'a> MacroExpander<'a> {
                     self.errors.push(err);
                 }
                 Ok(())
-            }).wait();
+            })
+                .wait();
         }
         if self.errors.has_errors() {
             info!("Macro errors: {}", self.errors);
@@ -198,30 +199,27 @@ impl<'a, 'b, 'c> MutVisitor<'c> for MacroVisitor<'a, 'b, 'c> {
                 _ => None,
             },
             Expr::TypeBindings(ref binds, ref mut body) => {
-                let generated_bindings = binds
-                    .iter()
-                    .flat_map(|bind| {
-                        if let Some(derive) = bind
-                            .metadata
-                            .attributes
-                            .iter()
-                            .find(|attr| attr.name == "derive")
-                        {
+                for bind in binds {
+                    if let Some(derive) = bind
+                        .metadata
+                        .attributes
+                        .iter()
+                        .find(|attr| attr.name == "derive")
+                    {
+                        let generated_bindings =
                             match ::derive::generate(self.symbols, derive, bind) {
                                 Ok(x) => x,
                                 Err(err) => {
                                     self.expander.errors.push(pos::spanned(bind.name.span, err));
-                                    Vec::new()
+                                    continue;
                                 }
-                            }
-                        } else {
-                            Vec::new()
-                        }
-                    }).collect::<Vec<_>>();
-                if !generated_bindings.is_empty() {
-                    let next_expr = mem::replace(body, Default::default());
-                    body.value =
-                        Expr::LetBindings(ValueBindings::Recursive(generated_bindings), next_expr);
+                            };
+                        let next_expr = mem::replace(body, Default::default());
+                        **body = pos::spanned(
+                            Default::default(),
+                            Expr::LetBindings(generated_bindings, next_expr),
+                        );
+                    }
                 }
                 None
             }

@@ -109,16 +109,15 @@ fn line_hook_recursive_functions() {
     let _ = env_logger::try_init();
 
     let expr = r#"
-rec
 let f x = x
-let g y = f
+and g y = f
 1
     "#;
 
     let lines = run_line_hook_test(expr);
     assert_eq!(
         lines,
-        vec![1, 2, 3, 4]
+        vec![1, 2, 3]
             .into_iter()
             .map(Line::from)
             .collect::<Vec<_>>()

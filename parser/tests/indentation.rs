@@ -71,10 +71,9 @@ fn and_on_same_line_as_type() {
 
     let result = parse(
         r#"
-rec
 type M a = | M a
-type M2 a = M a
-type HKT m = { x: m Int }
+and M2 a = M a
+and HKT m = { x: m Int }
 in 1
 "#,
     );
