@@ -21,7 +21,7 @@ pub enum Token<'input> {
     FloatLiteral(f64),
     DocComment(Comment),
 
-    And,
+    Rec,
     Else,
     Forall,
     If,
@@ -75,7 +75,7 @@ impl<'input> fmt::Display for Token<'input> {
             FloatLiteral(_) => "FloatLiteral",
             DocComment { .. } => "DocComment",
 
-            And => "And",
+            Rec => "Rec",
             Else => "Else",
             Forall => "Forall",
             If => "If",
@@ -115,15 +115,6 @@ impl<'input> fmt::Display for Token<'input> {
             EOF => "EOF",
         };
         s.fmt(f)
-    }
-}
-
-impl<'input> Token<'input> {
-    pub fn is_doc_comment(&self) -> bool {
-        match *self {
-            Token::DocComment(_) => true,
-            _ => false,
-        }
     }
 }
 
@@ -569,7 +560,7 @@ impl<'input> Tokenizer<'input> {
         }
 
         let token = match ident {
-            "and" => Token::And,
+            "rec" => Token::Rec,
             "else" => Token::Else,
             "forall" => Token::Forall,
             "if" => Token::If,
