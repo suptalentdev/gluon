@@ -68,11 +68,6 @@ pub enum TypeError<I> {
     UnableToResolveImplicit(implicits::Error<I>),
 }
 
-enum ErrorOrder {
-    ExpectedActual,
-    ActualExpected,
-}
-
 impl<I> From<KindCheckError<I>> for TypeError<I> {
     fn from(e: KindCheckError<I>) -> Self {
         match e {
@@ -1050,7 +1045,6 @@ impl<'a> Typecheck<'a> {
                                     let mut typ = self.subsumes_implicit(
                                         field.name.span,
                                         level,
-                                        ErrorOrder::ExpectedActual,
                                         &expected_field_type,
                                         typ,
                                         &mut |implicit_arg| {
@@ -1270,13 +1264,7 @@ impl<'a> Typecheck<'a> {
                 .function_implicit(once(arg_ty.clone()), ret_ty.clone());
 
             let level = self.subs.var_id();
-            self.subsumes(
-                arg.span,
-                level,
-                ErrorOrder::ExpectedActual,
-                &f,
-                func_type.clone(),
-            );
+            self.subsumes(arg.span, level, &f, func_type.clone());
 
             self.typecheck(arg, &arg_ty);
 
@@ -1295,16 +1283,9 @@ impl<'a> Typecheck<'a> {
 
             let level = self.subs.var_id();
             let errors_before = self.errors.len();
-            self.subsumes_implicit(
-                span,
-                level,
-                ErrorOrder::ExpectedActual,
-                &f,
-                func_type.clone(),
-                &mut |implicit_arg| {
-                    implicit_args.push(pos::spanned2(prev_arg_end, arg.span.start(), implicit_arg));
-                },
-            );
+            self.subsumes_implicit(span, level, &f, func_type.clone(), &mut |implicit_arg| {
+                implicit_args.push(pos::spanned2(prev_arg_end, arg.span.start(), implicit_arg));
+            });
 
             if errors_before != self.errors.len() {
                 self.errors.pop();
@@ -1330,21 +1311,15 @@ impl<'a> Typecheck<'a> {
                     span_end = arg.span.end();
                     self.infer_expr(arg.borrow_mut())
                 }).collect::<Vec<_>>();
-            let expected = self.type_cache.function(arg_types, self.subs.new_var());
+            let actual = self.type_cache.function(arg_types, self.subs.new_var());
 
             let span = Span::new(span_start, span_end);
             let level = self.subs.var_id();
             attach_extra_argument_help(self, args_len, |self_| {
-                self_.subsumes(
-                    span,
-                    level,
-                    ErrorOrder::ExpectedActual,
-                    &expected,
-                    func_type.clone(),
-                )
+                self_.subsumes(span, level, &actual, func_type.clone())
             });
 
-            func_type = expected;
+            func_type = actual;
         }
 
         Ok(TailCall::Type(func_type))
@@ -2334,11 +2309,11 @@ impl<'a> Typecheck<'a> {
         &mut self,
         span: Span<BytePos>,
         level: u32,
-        l: &ArcType,
-        r: ArcType,
+        expected: &ArcType,
+        actual: ArcType,
         expr: &mut SpannedExpr<Symbol>,
     ) -> ArcType {
-        self.subsumes_implicit(span, level, ErrorOrder::ActualExpected, l, r, &mut |arg| {
+        self.subsumes_implicit(span, level, expected, actual, &mut |arg| {
             match expr.value {
                 Expr::App { .. } => (),
                 _ => {
@@ -2366,7 +2341,6 @@ impl<'a> Typecheck<'a> {
         &mut self,
         span: Span<BytePos>,
         level: u32,
-        error_order: ErrorOrder,
         expected: &ArcType,
         mut actual: ArcType,
         receiver: &mut FnMut(Expr<Symbol>),
@@ -2417,14 +2391,13 @@ impl<'a> Typecheck<'a> {
                 _ => break,
             };
         }
-        self.subsumes(span, level, error_order, &expected, actual)
+        self.subsumes(span, level, &expected, actual)
     }
 
     fn subsumes(
         &mut self,
         span: Span<BytePos>,
         level: u32,
-        error_order: ErrorOrder,
         expected: &ArcType,
         actual: ArcType,
     ) -> ArcType {
@@ -2440,28 +2413,12 @@ impl<'a> Typecheck<'a> {
             &actual,
         ) {
             Ok(typ) => typ,
-            Err((typ, mut errors)) => {
+            Err((typ, errors)) => {
                 debug!(
                     "Error '{:?}' between:\n>> {}\n>> {}",
                     errors, expected, actual
                 );
-                let err = match error_order {
-                    ErrorOrder::ExpectedActual => {
-                        TypeError::Unification(expected, actual, errors.into())
-                    }
-                    ErrorOrder::ActualExpected => {
-                        for err in &mut errors {
-                            match err {
-                                unify::Error::TypeMismatch(l, r) => mem::swap(l, r),
-                                unify::Error::Other(unify_type::TypeError::FieldMismatch(l, r)) => {
-                                    mem::swap(l, r)
-                                }
-                                _ => (),
-                            }
-                        }
-                        TypeError::Unification(actual, expected, errors.into())
-                    }
-                };
+                let err = TypeError::Unification(expected, actual, errors.into());
                 self.errors.push(Spanned {
                     span: span,
                     // TODO Help what caused this unification failure

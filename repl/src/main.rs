@@ -14,7 +14,6 @@ extern crate log;
 #[macro_use]
 extern crate serde_derive;
 extern crate structopt;
-#[allow(unused_imports)]
 #[macro_use]
 extern crate structopt_derive;
 extern crate tokio;
@@ -142,28 +141,17 @@ const LONG_VERSION: &str = concat!(crate_version!(), "\n", "commit: ", env!("GIT
 pub struct Opt {
     #[structopt(short = "i", long = "interactive", help = "Starts the repl")]
     interactive: bool,
-
     #[structopt(
         long = "color",
         default_value = "auto",
         help = "Coloring: auto, always, always-ansi, never"
     )]
     color: Color,
-
-    #[structopt(
-        long = "prompt",
-        short = "p",
-        default_value = "> ",
-        help = "String printed as the prompt for the repl"
-    )]
-    prompt: String,
-
     #[structopt(
         name = "FILE",
         help = "Executes each file as a gluon program"
     )]
     input: Vec<String>,
-
     #[structopt(subcommand)]
     subcommand_opt: Option<SubOpt>,
 }
@@ -282,8 +270,7 @@ fn run(
         }
         None => if opt.interactive {
             let mut runtime = Runtime::new()?;
-            let prompt = opt.prompt.clone();
-            runtime.block_on(future::lazy(move || repl::run(color, &prompt)))?;
+            runtime.block_on(future::lazy(move || repl::run(color)))?;
         } else if !opt.input.is_empty() {
             run_files(compiler, &vm, &opt.input)?;
         } else {

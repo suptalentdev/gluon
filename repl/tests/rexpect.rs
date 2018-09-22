@@ -22,14 +22,16 @@ impl REPL {
     /// Wraps a rexpect::session::PtySession. expecting the prompt after launch.
     fn new_() -> Result<REPL> {
         let timeout: u64 = 30_000;
-        let prompt: &'static str = "REXPECT> ";
 
         let mut command = Command::new("../target/debug/gluon");
         command
-            .args(&["-i", "--color", "never", "--prompt", prompt])
+            .arg("-i")
+            .arg("--color")
+            .arg("never")
             .env("GLUON_PATH", "..");
         let mut session = spawn_command(command, Some(timeout))?;
 
+        let prompt: &'static str = "> ";
         session.exp_string(prompt)?;
 
         Ok(REPL { session, prompt })

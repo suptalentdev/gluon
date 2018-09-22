@@ -422,12 +422,12 @@ eq (A 0) (B 0.0)
     assert_eq!(
         &*format!("{}", result.unwrap_err()).replace("\t", "        "),
         r#"error: Expected the following types to be equal
-Expected: test.A
-Found: test.B
+Expected: test.B
+Found: test.A
 1 errors were found during unification:
 Types do not match:
-    Expected: test.A
-    Found: test.B
+    Expected: test.B
+    Found: test.A
 - <test>:5:11
 5 | eq (A 0) (B 0.0)
   |           ^^^^^
@@ -449,8 +449,8 @@ f { } { x = 1 }
     assert_eq!(
         &*format!("{}", result.unwrap_err()).replace("\t", "        "),
         r#"error: Expected the following types to be equal
-Expected: ()
-Found: { x : Int }
+Expected: { x : Int }
+Found: ()
 1 errors were found during unification:
 The type `()` lacks the following fields: x
 - <test>:4:7
