@@ -196,7 +196,7 @@ impl<'a> fmt::Display for Panic<'a> {
     }
 }
 
-pub type ExternLoader = Box<FnMut(&Thread) -> Result<ExternModule> + Send + Sync>;
+pub type ExternLoader = fn(&Thread) -> Result<ExternModule>;
 
 pub struct ExternModule {
     pub metadata: Metadata,
