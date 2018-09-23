@@ -871,12 +871,10 @@ where
         Self: Send + Sync,
     {
         let self_ = RootedThread::root(self.borrow());
-        let level = self_.context().stack.get_frames().len();
-
         Box::new(self.call_thunk(closure).or_else(move |mut err| {
             let mut context = self_.context();
             let stack = StackFrame::<State>::current(&mut context.stack);
-            let new_trace = reset_stack(stack, level)?;
+            let new_trace = reset_stack(stack, 1)?;
             if let Error::Panic(_, ref mut trace) = err {
                 *trace = Some(new_trace);
             }
@@ -895,11 +893,10 @@ where
         Self: Send + Sync,
     {
         let self_ = RootedThread::root(self.borrow());
-        let level = self_.context().stack.get_frames().len();
         Box::new(self.execute_io(value).or_else(move |mut err| {
             let mut context = self_.context();
             let stack = StackFrame::<State>::current(&mut context.stack);
-            let new_trace = reset_stack(stack, level)?;
+            let new_trace = reset_stack(stack, 1)?;
             if let Error::Panic(_, ref mut trace) = err {
                 *trace = Some(new_trace);
             }
