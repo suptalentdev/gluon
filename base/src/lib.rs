@@ -1,6 +1,6 @@
 //! The base crate contains pervasive types used in the compiler such as type representations, the
 //! AST and some basic containers.
-#![doc(html_root_url = "https://docs.rs/gluon_base/0.9.3")] // # GLUON
+#![doc(html_root_url = "https://docs.rs/gluon_base/0.9.4")] // # GLUON
 #![allow(unknown_lints)]
 
 #[macro_use]
@@ -107,41 +107,4 @@ pub fn filename_to_module(filename: &str) -> String {
     });
 
     name.replace(|c: char| c == '/' || c == '\\', ".")
-}
-
-#[derive(Debug, Clone)]
-pub enum DebugLevel {
-    None,
-    Low,
-    High,
-}
-
-impl Default for DebugLevel {
-    fn default() -> DebugLevel {
-        DebugLevel::None
-    }
-}
-
-impl ::std::str::FromStr for DebugLevel {
-    type Err = &'static str;
-    fn from_str(s: &str) -> ::std::result::Result<Self, Self::Err> {
-        use self::DebugLevel::*;
-        Ok(match s {
-            "none" => None,
-            "low" => Low,
-            "high" => High,
-            _ => return Err("Expected on of none, low, high"),
-        })
-    }
-}
-
-impl ::std::string::ToString for DebugLevel {
-    fn to_string(&self) -> String {
-        use self::DebugLevel::*;
-        match self {
-            &None => "none".to_string(),
-            &Low => "low".to_string(),
-            &High => "high".to_string(),
-        }
-    }
 }

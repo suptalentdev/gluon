@@ -13,7 +13,6 @@ use base::symbol::{Name, Symbol, SymbolRef};
 use base::types::{
     Alias, AliasData, AppVec, ArcType, Generic, PrimitiveEnv, Type, TypeCache, TypeEnv,
 };
-use base::DebugLevel;
 
 use api::{ValueRef, IO};
 use compiler::{CompiledFunction, CompiledModule, CompilerEnv, Variable};
@@ -171,9 +170,6 @@ pub struct GlobalVmState {
     // thread
     #[cfg_attr(feature = "serde_derive", serde(state))]
     pub generation_0_threads: RwLock<Vec<GcPtr<Thread>>>,
-
-    #[cfg_attr(feature = "serde_derive", serde(skip))]
-    debug_level: RwLock<DebugLevel>,
 }
 
 impl Traverseable for GlobalVmState {
@@ -413,7 +409,6 @@ impl GlobalVmStateBuilder {
             macros: MacroEnv::new(),
             type_cache: TypeCache::default(),
             generation_0_threads: RwLock::new(Vec::new()),
-            debug_level: RwLock::new(DebugLevel::default()),
         };
         vm.add_types().unwrap();
         vm
@@ -587,13 +582,5 @@ impl GlobalVmState {
     /// Returns a borrowed structure which implements `CompilerEnv`
     pub fn get_env<'b>(&'b self) -> RwLockReadGuard<'b, VmEnv> {
         self.env.read().unwrap()
-    }
-
-    pub fn get_debug_level<'b>(&'b self) -> RwLockReadGuard<'b, DebugLevel> {
-        self.debug_level.read().unwrap()
-    }
-
-    pub fn set_debug_level(&self, debug_level: DebugLevel) {
-        *self.debug_level.write().unwrap() = debug_level;
     }
 }
