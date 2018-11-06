@@ -13,7 +13,6 @@ use base::fnv::FnvMap;
 use base::symbol::Symbol;
 use base::types::pretty_print::ident as pretty_ident;
 use base::types::{ArcType, Type, TypeEnv};
-use base::DebugLevel;
 use types::*;
 
 use array::Array;
@@ -540,23 +539,16 @@ pub struct ValuePrinter<'a> {
     pub value: Variants<'a>,
     pub max_level: i32,
     pub width: usize,
-    pub debug_level: &'a DebugLevel,
 }
 
 impl<'t> ValuePrinter<'t> {
-    pub fn new(
-        env: &'t TypeEnv,
-        typ: &'t ArcType,
-        value: Variants<'t>,
-        debug_level: &'t DebugLevel,
-    ) -> ValuePrinter<'t> {
+    pub fn new(env: &'t TypeEnv, typ: &'t ArcType, value: Variants<'t>) -> ValuePrinter<'t> {
         ValuePrinter {
             typ,
             env,
             value,
             max_level: 50,
             width: 80,
-            debug_level,
         }
     }
 
@@ -579,7 +571,6 @@ struct InternalPrinter<'a, 't> {
     arena: &'a Arena<'a>,
     prec: Prec,
     level: i32,
-    debug_level: &'t DebugLevel,
 }
 
 impl<'a> fmt::Display for ValuePrinter<'a> {
@@ -592,7 +583,6 @@ impl<'a> fmt::Display for ValuePrinter<'a> {
             arena: &arena,
             prec: Top,
             level: self.max_level,
-            debug_level: self.debug_level,
         }.pretty(self.value)
         .group()
         .1
@@ -617,13 +607,7 @@ impl<'a, 't> InternalPrinter<'a, 't> {
                     function.id.declared_name().to_string(),
                     ">"
                 ],
-            ValueRepr::Closure(ref closure) => match self.debug_level {
-                &DebugLevel::None => chain![arena;
-                    "<",
-                 arena.text(closure.function.name.declared_name().to_string()),
-                    ">"
-                ],
-                &DebugLevel::Low | &DebugLevel::High => chain![arena;
+            ValueRepr::Closure(ref closure) => chain![arena;
                     "<",
                     arena.text(closure.function.name.declared_name().to_string()),
                     arena.concat(variant_iter(&closure.upvars).zip(&closure.function.debug_info.upvars)
@@ -638,7 +622,6 @@ impl<'a, 't> InternalPrinter<'a, 't> {
                         }).intersperse(arena.text(","))).nest(INDENT),
                     ">"
                 ],
-            },
             ValueRepr::Array(ref array) => chain![arena;
                     "[",
                     arena.concat(array.iter().map(|field| {
@@ -769,7 +752,6 @@ impl<'a, 't> InternalPrinter<'a, 't> {
             arena: self.arena,
             prec: prec,
             level: self.level - 1,
-            debug_level: self.debug_level,
         }
     }
 }
@@ -1618,7 +1600,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                ValuePrinter::new(&env, &typ, unsafe { Variants::new(&nil) }, &DebugLevel::None)
+                ValuePrinter::new(&env, &typ, unsafe { Variants::new(&nil) })
             ),
             "Nil"
         );
@@ -1631,7 +1613,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                ValuePrinter::new(&env, &typ, unsafe { Variants::new(&list1) }, &DebugLevel::None)
+                ValuePrinter::new(&env, &typ, unsafe { Variants::new(&list1) })
             ),
             "Cons 123 Nil"
         );
@@ -1644,7 +1626,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                ValuePrinter::new(&env, &typ, unsafe { Variants::new(&list2) }, &DebugLevel::None)
+                ValuePrinter::new(&env, &typ, unsafe { Variants::new(&list2) })
             ),
             "Cons 0 (Cons 123 Nil)"
         );
@@ -1662,7 +1644,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                ValuePrinter::new(&env, &typ, unsafe { Variants::new(&nil) }, &DebugLevel::None)
+                ValuePrinter::new(&env, &typ, unsafe { Variants::new(&nil) })
             ),
             "[1, 2, 3]"
         );
