@@ -156,8 +156,7 @@ where
                                 arena.text("?")
                             } else {
                                 arena.nil()
-                            })
-                            .append(pretty(arg))
+                            }).append(pretty(arg))
                     });
                 pretty(func)
                     .append(arena.concat(arg_iter).nest(INDENT))
@@ -174,29 +173,26 @@ where
                             .map(|elem| pretty(elem))
                             .intersperse(arena.text(",").append(arena.space())),
                     ),
-                )
-                .append("]")
+                ).append("]")
                 .group(),
 
-            Expr::Block(ref elems) => {
-                if elems.len() == 1 {
-                    chain![arena;
+            Expr::Block(ref elems) => if elems.len() == 1 {
+                chain![arena;
                         "(",
                         pretty(&elems[0]),
                         ")"
                     ]
-                } else {
-                    arena.concat(elems.iter().enumerate().map(|(i, elem)| {
-                        if i + 1 == elems.len() {
-                            pretty(elem).group()
-                        } else {
-                            pretty(elem)
-                                .group()
-                                .append(self.comments_after(elem.span.end()))
-                        }
-                    }))
-                }
-            }
+            } else {
+                arena.concat(elems.iter().enumerate().map(|(i, elem)| {
+                    if i + 1 == elems.len() {
+                        pretty(elem).group()
+                    } else {
+                        pretty(elem)
+                            .group()
+                            .append(self.comments_after(elem.span.end()))
+                    }
+                }))
+            },
 
             Expr::Ident(ref id) => pretty_types::ident(arena, id.name.as_ref()),
 
@@ -367,8 +363,7 @@ where
                         ),
                     ),
                     ")"
-                ]
-            .group(),
+                ].group(),
 
             Expr::TypeBindings(ref binds, ref body) => {
                 let is_recursive = binds.len() > 1;
@@ -644,15 +639,13 @@ where
                             }
                         }),
                         |spanned| spanned.value,
-                    ))
-                    .append(
+                    )).append(
                         if (!exprs.is_empty() || !types.is_empty()) && is_newline(&line) {
                             arena.text(",")
                         } else {
                             arena.nil()
                         },
-                    )
-                    .append(match *base {
+                    ).append(match *base {
                         Some(ref base) => {
                             let comments = self.comments_after(last_field_end);
                             chain![arena;
@@ -667,12 +660,10 @@ where
                             ]
                         }
                         None => arena.nil(),
-                    })
-                    .nest(INDENT)
+                    }).nest(INDENT)
                     .append(
                         self.whitespace(Span::new(last_element_end, expr.span.end()), line.clone()),
-                    )
-                    .group()
+                    ).group()
                     .append("}");
                 (arena.text("{"), record)
             }
@@ -768,8 +759,7 @@ where
                         .iter()
                         .map(|field| {
                             pos::spanned(field.name.span, arena.text(field.name.value.as_ref()))
-                        })
-                        .chain(fields.iter().map(|field| {
+                        }).chain(fields.iter().map(|field| {
                             let doc = chain![arena;
                                 pretty_types::ident(arena, field.name.value.as_ref()),
                                 match field.value {
@@ -783,8 +773,7 @@ where
                                 }
                             ];
                             pos::spanned(field.name.span, doc)
-                        }))
-                        .chain(
+                        })).chain(
                             implicit_import
                                 .as_ref()
                                 .map(|spanned| pos::spanned(spanned.span, arena.text("?"))),
@@ -801,8 +790,7 @@ where
                         arena.space()
                     },
                     "}"
-                ]
-                .group()
+                ].group()
             }
             Pattern::Tuple { ref elems, .. } => chain![arena;
                 "(",
@@ -813,8 +801,7 @@ where
                     |elem| elem.value)
                 ),
                 ")"
-            ]
-            .group(),
+            ].group(),
             Pattern::Error => arena.text("<error>"),
             Pattern::Literal(_) => arena.text(self.source.src_slice(pattern.span)),
         }
@@ -856,8 +843,7 @@ where
                         opening
                     ].group(),
                     body
-                ]
-                .group();
+                ].group();
                 if needs_indent {
                     doc.nest(INDENT)
                 } else {
@@ -877,12 +863,10 @@ where
                     chain![arena;
                         spaces,
                         arguments
-                    ]
-                    .group()
+                    ].group()
                     .append(body)
                     .nest(INDENT),
-                )
-                .group()
+                ).group()
             }
         }
     }
@@ -929,8 +913,7 @@ where
                 } else {
                     arena.text(comment)
                 }
-            })
-            .fold(arena.nil(), |acc, doc| doc.append(acc))
+            }).fold(arena.nil(), |acc, doc| doc.append(acc))
     }
 }
 

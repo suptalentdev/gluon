@@ -1,11 +1,6 @@
 use proc_macro2::{Group, Span, TokenStream, TokenTree};
 
-use syn::{
-    self,
-    parse::{self, Parse},
-    Ident,
-    Meta::*,
-};
+use syn::{Meta::*, self, Ident, parse::{self, Parse}};
 
 fn get_gluon_meta_items(attr: &syn::Attribute) -> Option<Vec<syn::NestedMeta>> {
     if attr.path.segments.len() == 1 && attr.path.segments[0].ident == "gluon" {

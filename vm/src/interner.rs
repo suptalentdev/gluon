@@ -66,7 +66,10 @@ impl InternedStr {
     }
 }
 
-#[cfg_attr(feature = "serde_derive", derive(DeserializeState, SerializeState))]
+#[cfg_attr(
+    feature = "serde_derive",
+    derive(DeserializeState, SerializeState)
+)]
 #[cfg_attr(
     feature = "serde_derive",
     serde(deserialize_state = "::serialization::DeSeed")

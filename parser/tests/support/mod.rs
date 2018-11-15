@@ -110,8 +110,7 @@ pub fn parse(
             (">>", OpMeta::new(9, Fixity::Left)),
             ("<|", OpMeta::new(0, Fixity::Right)),
             ("|>", OpMeta::new(0, Fixity::Left)),
-        ]
-        .into_iter()
+        ].into_iter()
         .map(|(s, op)| (s.to_string(), op)),
     );
 
@@ -140,8 +139,7 @@ pub fn zero_index(mut expr: SpannedExpr<String>) -> SpannedExpr<String> {
             (span.start().to_usize() as u32 - 1).into(),
             (span.end().to_usize() as u32 - 1).into(),
         )
-    })
-    .visit_expr(&mut expr);
+    }).visit_expr(&mut expr);
     expr
 }
 
@@ -259,8 +257,7 @@ pub fn case(e: SpExpr, alts: Vec<(Pattern<String>, SpExpr)>) -> SpExpr {
             .map(|(p, e)| Alternative {
                 pattern: no_loc(p),
                 expr: e,
-            })
-            .collect(),
+            }).collect(),
     ))
 }
 
@@ -312,16 +309,14 @@ pub fn record_a(
                 metadata: Metadata::default(),
                 name: no_loc(name),
                 value: value,
-            })
-            .collect(),
+            }).collect(),
         exprs: fields
             .into_iter()
             .map(|(name, value)| ExprField {
                 metadata: Metadata::default(),
                 name: no_loc(name),
                 value: value,
-            })
-            .collect(),
+            }).collect(),
         base: None,
     })
 }

@@ -7,7 +7,7 @@ pub use self::Instruction::*;
 
 pub type VmIndex = u32;
 pub type VmTag = u32;
-pub type VmInt = i64;
+pub type VmInt = isize;
 
 /// Enum which represent the instructions executed by the virtual machine.
 ///
@@ -16,7 +16,7 @@ pub type VmInt = i64;
 #[cfg_attr(feature = "serde_derive", derive(Deserialize, Serialize))]
 pub enum Instruction {
     /// Push an integer to the stack
-    PushInt(VmInt),
+    PushInt(isize),
     /// Push a byte to the stack
     PushByte(u8),
     /// Push a float to the stack
@@ -166,7 +166,10 @@ impl Instruction {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "serde_derive", derive(DeserializeState, SerializeState))]
+#[cfg_attr(
+    feature = "serde_derive",
+    derive(DeserializeState, SerializeState)
+)]
 #[cfg_attr(
     feature = "serde_derive",
     serde(deserialize_state = "::serialization::DeSeed")
@@ -202,8 +205,7 @@ impl TypeEnv for TypeInfos {
             .filter_map(|(_, ref alias)| match **alias.unresolved_type() {
                 Type::Variant(ref row) => row.row_iter().find(|field| field.name.as_ref() == id),
                 _ => None,
-            })
-            .next()
+            }).next()
             .map(|field| &field.typ)
     }
 

@@ -118,7 +118,11 @@ define_vmtype! { Color }
 #[derive(StructOpt)]
 #[structopt(about = "Formats gluon source code")]
 pub struct FmtOpt {
-    #[structopt(name = "FILE", parse(from_os_str), help = "Formats each file")]
+    #[structopt(
+        name = "FILE",
+        parse(from_os_str),
+        help = "Formats each file"
+    )]
     input: Vec<PathBuf>,
 }
 
@@ -133,7 +137,10 @@ pub enum SubOpt {
 const LONG_VERSION: &str = concat!(crate_version!(), "\n", "commit: ", env!("GIT_HASH"));
 
 #[derive(StructOpt)]
-#[structopt(about = "executes gluon programs", raw(long_version = "LONG_VERSION"))]
+#[structopt(
+    about = "executes gluon programs",
+    raw(long_version = "LONG_VERSION")
+)]
 pub struct Opt {
     #[structopt(short = "i", long = "interactive", help = "Starts the repl")]
     interactive: bool,
@@ -160,7 +167,10 @@ pub struct Opt {
     )]
     debug_level: base::DebugLevel,
 
-    #[structopt(name = "FILE", help = "Executes each file as a gluon program")]
+    #[structopt(
+        name = "FILE",
+        help = "Executes each file as a gluon program"
+    )]
     input: Vec<String>,
 
     #[structopt(subcommand)]

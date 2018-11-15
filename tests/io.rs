@@ -374,3 +374,4 @@ fn io_error_in_catch3() {
 
     assert_eq!(result, expected);
 }
+

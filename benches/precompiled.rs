@@ -38,8 +38,7 @@ fn precompiled_prelude(b: &mut Bencher) {
             &prelude,
             None,
             &mut serializer,
-        )
-        .unwrap()
+        ).unwrap()
     }
     b.iter(|| {
         use gluon::compiler_pipeline::{Executable, Precompiled};
@@ -70,8 +69,7 @@ fn source_prelude(b: &mut Bencher) {
                 "std.prelude",
                 &prelude_source,
                 None,
-            )
-            .wait()
+            ).wait()
             .unwrap();
         black_box(result)
     })
