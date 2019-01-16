@@ -13,30 +13,12 @@ use crate::Variants;
 
 pub trait StackPrimitive {
     fn push_to(&self, stack: &mut Stack);
-
-    fn extend_to<'b, I>(iter: I, stack: &mut Stack)
-    where
-        I: IntoIterator<Item = &'b Self>,
-        Self: 'b,
-    {
-        for item in iter {
-            item.push_to(stack);
-        }
-    }
 }
 
 impl<'a, T: StackPrimitive + 'a> StackPrimitive for &'a T {
     #[inline(always)]
     fn push_to(&self, stack: &mut Stack) {
         (**self).push_to(stack)
-    }
-
-    fn extend_to<'b, I>(iter: I, stack: &mut Stack)
-    where
-        I: IntoIterator<Item = &'b Self>,
-        Self: 'b,
-    {
-        StackPrimitive::extend_to(iter.into_iter().map(|i| *i), stack)
     }
 }
 
@@ -45,16 +27,6 @@ impl<'a> StackPrimitive for Variants<'a> {
     fn push_to(&self, stack: &mut Stack) {
         self.0.push_to(stack)
     }
-
-    fn extend_to<'b, I>(iter: I, stack: &mut Stack)
-    where
-        I: IntoIterator<Item = &'b Self>,
-        Self: 'b,
-    {
-        stack
-            .values
-            .extend(iter.into_iter().map(|i| Value::from(i.0)))
-    }
 }
 
 impl StackPrimitive for ValueRepr {
@@ -62,30 +34,12 @@ impl StackPrimitive for ValueRepr {
     fn push_to(&self, stack: &mut Stack) {
         stack.values.push(Value::from(*self))
     }
-
-    fn extend_to<'b, I>(iter: I, stack: &mut Stack)
-    where
-        I: IntoIterator<Item = &'b Self>,
-    {
-        stack
-            .values
-            .extend(iter.into_iter().map(|i| Value::from(*i)))
-    }
 }
 
 impl StackPrimitive for Value {
     #[inline(always)]
     fn push_to(&self, stack: &mut Stack) {
         stack.values.push(Value::from(self.get_repr()))
-    }
-
-    fn extend_to<'b, I>(iter: I, stack: &mut Stack)
-    where
-        I: IntoIterator<Item = &'b Self>,
-    {
-        stack
-            .values
-            .extend(iter.into_iter().map(|i| Value::from(i.get_repr())))
     }
 }
 
@@ -312,12 +266,9 @@ impl Stack {
     }
 
     pub fn pop_many(&mut self, count: VmIndex) {
-        let len = self.values.len();
-        self.values.truncate(len - count as usize);
-    }
-
-    pub fn clear(&mut self) {
-        self.values.clear();
+        for _ in 0..count {
+            self.values.pop();
+        }
     }
 
     pub fn slide(&mut self, count: VmIndex) {
@@ -571,11 +522,6 @@ where
         self.stack.pop_many(count);
     }
 
-    pub fn clear(&mut self) {
-        let len = self.len();
-        self.stack.pop_many(len);
-    }
-
     pub fn slide(&mut self, count: VmIndex) {
         self.stack.slide(count);
     }
@@ -825,31 +771,6 @@ where
 {
     fn index_mut(&mut self, range: RangeFrom<VmIndex>) -> &mut [Value] {
         &mut self.stack.values[(range.start + self.frame.offset) as usize..]
-    }
-}
-
-impl<'c, T> Extend<&'c T> for Stack
-where
-    T: StackPrimitive + 'c,
-{
-    fn extend<I>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = &'c T>,
-    {
-        T::extend_to(iter, self)
-    }
-}
-
-impl<'b, 'c, T, S> Extend<&'c T> for StackFrame<'b, S>
-where
-    T: StackPrimitive + 'c,
-    S: StackState,
-{
-    fn extend<I>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = &'c T>,
-    {
-        T::extend_to(iter, &mut self.stack)
     }
 }
 

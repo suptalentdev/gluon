@@ -896,7 +896,7 @@ enum CType {
 
 use self::optimize::*;
 struct ReplaceVariables<'a, 'b> {
-    replacements: &'b FnvMap<Symbol, Symbol>,
+    replacements: &'b HashMap<Symbol, Symbol>,
     allocator: &'a Allocator<'a>,
 }
 
@@ -924,7 +924,7 @@ impl<'a, 'b> Visitor<'a, 'a> for ReplaceVariables<'a, 'b> {
 
 fn replace_variables<'a, 'b>(
     allocator: &'a Allocator<'a>,
-    replacements: &'b FnvMap<Symbol, Symbol>,
+    replacements: &'b HashMap<Symbol, Symbol>,
     expr: &'a Expr<'a>,
 ) -> &'a Expr<'a> {
     if replacements.is_empty() {
@@ -990,7 +990,7 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
                     .map(|equation| *equation.patterns.first().unwrap())
             };
 
-            let (core_pattern, replacements) = self.pattern_identifiers(first_iter());
+            let (pattern, replacements) = self.pattern_identifiers(first_iter());
 
             // Gather the inner patterns so we can prepend them to equations
             let temp = first_iter()
@@ -1000,41 +1000,22 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
                         ref fields,
                         ..
                     } => {
-                        let mut record_type = None;
-                        // Core fields appear in the same order as the normal pattern so we can
-                        // get the types from it cheaply
-                        let core_fields = match &core_pattern {
-                            Pattern::Record(core_fields) => core_fields,
-                            _ => unreachable!(),
-                        };
+                        let record_type = remove_aliases_cow(&self.0.env, typ);
+
                         fields
                             .iter()
-                            .zip(core_fields)
-                            .map(|(field, core_field)| {
+                            .map(|field| {
                                 field.value.as_ref().map(Cow::Borrowed).unwrap_or_else(|| {
-                                    let typ = if field.name.value == core_field.0.name {
-                                        core_field.0.typ.clone()
-                                    } else {
-                                        // If the field has been renamed we need to go the slo path
-                                        // and do a lookup but this should be rare
-                                        if record_type.is_none() {
-                                            record_type =
-                                                Some(remove_aliases_cow(&self.0.env, typ));
-                                        }
-                                        record_type
-                                            .as_ref()
-                                            .unwrap()
-                                            .row_iter()
-                                            .find(|f| f.name.name_eq(&field.name.value))
-                                            .map(|f| f.typ.clone())
-                                            .unwrap_or_else(Type::hole)
-                                    };
-
+                                    let field_type = record_type
+                                        .row_iter()
+                                        .find(|f| f.name.name_eq(&field.name.value))
+                                        .map(|f| f.typ.clone())
+                                        .unwrap_or_else(|| Type::hole());
                                     Cow::Owned(spanned(
                                         Span::default(),
                                         ast::Pattern::Ident(TypedIdent {
                                             name: field.name.value.clone(),
-                                            typ,
+                                            typ: field_type,
                                         }),
                                     ))
                                 })
@@ -1064,13 +1045,13 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
                 })
                 .collect::<Vec<_>>();
 
-            let new_variables = self.insert_new_variables(&core_pattern, variables);
+            let new_variables = self.insert_new_variables(&pattern, variables);
 
             let expr = self.translate(default, &new_variables, &new_equations);
             let expr = replace_variables(&self.0.allocator, &replacements, expr);
 
             Alternative {
-                pattern: core_pattern,
+                pattern: pattern,
                 expr: expr,
             }
         };
@@ -1224,6 +1205,21 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
             pattern: pattern,
             expr: expr,
         };
+
+        // match x with
+        // | y -> EXPR
+        // // ==>
+        // EXPR // with `y`s replaced by `x`
+        match (&alt.pattern, variables[0]) {
+            (&Pattern::Ident(ref id), &Expr::Ident(ref expr_id, _)) => {
+                return replace_variables(
+                    &self.0.allocator,
+                    &collect![(id.name.clone(), expr_id.name.clone())],
+                    expr,
+                );
+            }
+            _ => (),
+        }
 
         let expr = Expr::Match(
             variables[0],
@@ -1460,7 +1456,7 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
     // Gather all the identifiers of top level pattern of each of the `patterns` and create a core
     // pattern.
     // Nested patterns are ignored here.
-    fn pattern_identifiers<'b, 'p: 'b, I>(&self, patterns: I) -> (Pattern, FnvMap<Symbol, Symbol>)
+    fn pattern_identifiers<'b, 'p: 'b, I>(&self, patterns: I) -> (Pattern, HashMap<Symbol, Symbol>)
     where
         I: IntoIterator<Item = &'b SpannedPattern<Symbol>>,
     {
@@ -1470,7 +1466,7 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
     fn pattern_identifiers_<'b, 'p: 'b>(
         &self,
         patterns: &mut Iterator<Item = &'b SpannedPattern<Symbol>>,
-    ) -> (Pattern, FnvMap<Symbol, Symbol>) {
+    ) -> (Pattern, HashMap<Symbol, Symbol>) {
         let mut identifiers: Vec<TypedIdent<Symbol>> = Vec::new();
         let mut record_fields: Vec<(TypedIdent<Symbol>, _)> = Vec::new();
         let mut core_pattern = None;
@@ -1483,7 +1479,7 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
         let mut replacements = HashMap::default();
 
         fn add_duplicate_ident(
-            replacements: &mut FnvMap<Symbol, Symbol>,
+            replacements: &mut HashMap<Symbol, Symbol>,
             record_fields: &mut Vec<(TypedIdent<Symbol>, Option<Symbol>)>,
             field: &Symbol,
             pattern: Option<&SpannedPattern<Symbol>>,
@@ -1557,8 +1553,6 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
                     ref fields,
                     ..
                 } => {
-                    let typ = remove_aliases_cow(&self.0.env, typ);
-
                     for (i, field) in fields.iter().enumerate() {
                         if !add_duplicate_ident(
                             &mut replacements,
@@ -1570,7 +1564,7 @@ impl<'a, 'e> PatternTranslator<'a, 'e> {
                                 .value
                                 .as_ref()
                                 .map(|pattern| self.extract_ident(i, &pattern.value).name);
-                            let field_type = typ
+                            let field_type = remove_aliases_cow(&self.0.env, typ)
                                 .row_iter()
                                 .find(|f| f.name.name_eq(&field.name.value))
                                 .map(|f| f.typ.clone())

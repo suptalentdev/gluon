@@ -513,17 +513,19 @@ Found:
     );
 }
 
-test_check_err! {
-    undefined_field_after_overload,
-    r#"
+#[test]
+fn undefined_field_after_overload() {
+    let _ = ::env_logger::try_init();
+    let text = r#"
 let f =
     \x g ->
         let { x } = g x
         x
 let r = f { x = 0 } (\r -> { x = r.x #Int+ 1 })
 r.y
-"#,
-    InvalidProjection(..)
+"#;
+    let result = support::typecheck(text);
+    assert_err!(result, InvalidProjection(..));
 }
 
 #[test]
