@@ -9,7 +9,9 @@ use crate::base::{
     metadata::{Metadata, MetadataEnv},
     pos::BytePos,
     symbol::{Symbol, SymbolModule, SymbolRef, Symbols},
-    types::{self, Alias, ArcType, Generic, PrimitiveEnv, Type, TypeCache, TypeEnv},
+    types::{
+        self, Alias, ArcType, Generic, ModType, ModTypeRef, PrimitiveEnv, Type, TypeCache, TypeEnv,
+    },
 };
 
 use crate::check::{
@@ -87,11 +89,11 @@ impl KindEnv for MockEnv {
 impl TypeEnv for MockEnv {
     type Type = ArcType;
 
-    fn find_type(&self, id: &SymbolRef) -> Option<&ArcType> {
+    fn find_type(&self, id: &SymbolRef) -> Option<ModTypeRef> {
         match id.definition_name() {
-            "False" | "True" => Some(self.bool.as_type()),
+            "False" | "True" => Some(ModType::rigid(self.bool.as_type())),
             // Just need a dummy type that is not `Type::hole` to verify that lookups work
-            "std.prelude" => Some(&self.int),
+            "std.prelude" => Some(ModType::rigid(&self.int)),
             _ => None,
         }
     }
