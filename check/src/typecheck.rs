@@ -895,7 +895,6 @@ impl<'a> Typecheck<'a> {
                     // TODO Make this more general so it can error when not matching on all the
                     // variants
                     {
-                        *unaliased_scrutinee_type = self.subs.zonk(&unaliased_scrutinee_type);
                         let replaced = match (&alt.pattern.value, &**unaliased_scrutinee_type) {
                             (Pattern::Constructor(id, _), Type::Variant(row)) => {
                                 let mut variant_iter = row.row_iter();
@@ -2012,20 +2011,13 @@ impl<'a> Typecheck<'a> {
             }
 
             debug!("End generalize recursive");
+
+            // Update the implicit bindings with the generalized types we just created
+            let bindings = self.implicit_resolver.implicit_bindings.last_mut().unwrap();
+
+            let stack = &self.environment.stack;
+            bindings.update(|name| Some(stack.get(name).unwrap().typ.concrete.clone()));
         }
-        // Update the implicit bindings with the generalized types we just created
-        let bindings = self.implicit_resolver.implicit_bindings.last_mut().unwrap();
-        let stack = &self.environment.stack;
-        bindings.update(|name| {
-            Some(
-                stack
-                    .get(name)
-                    .unwrap_or_else(|| ice!("Implicit binding `{}` could not be updated", name))
-                    .typ
-                    .concrete
-                    .clone(),
-            )
-        });
 
         debug!("Typecheck `in`");
         self.environment.type_variables.exit_scope();

@@ -1,10 +1,7 @@
-use std::{fs, path::Path};
-
-use {itertools::Itertools, rayon::prelude::*};
-
 use gluon_doc as doc;
 
-use gluon::{check::metadata::metadata, Compiler, RootedThread};
+use gluon::check::metadata::metadata;
+use gluon::{Compiler, RootedThread};
 
 fn new_vm() -> RootedThread {
     ::gluon::VmBuilder::new()
@@ -19,13 +16,7 @@ fn doc_check(module: &str, expected: doc::Record) {
         .unwrap();
     let (meta, _) = metadata(&*vm.get_env(), &expr);
 
-    let out = doc::record(
-        "basic",
-        &typ,
-        &Default::default(),
-        &<() as gluon::base::source::Source>::new(""),
-        &meta,
-    );
+    let out = doc::record("basic", &typ, &meta);
     assert_eq!(out, expected,);
 }
 
@@ -48,7 +39,6 @@ let test x = x
                 }],
                 typ: handlebars::html_escape("forall a . a -> a"),
                 comment: "This is the test function".to_string(),
-                definition_line: None,
             }],
         },
     );
@@ -72,22 +62,23 @@ let test x = x
     );
 }
 
-#[test]
-fn check_links() {
-    let _ = env_logger::try_init();
-
-    let out = Path::new("../target/doc_test");
-    if out.exists() {
-        fs::remove_dir_all(out).unwrap_or_else(|err| panic!("{}", err));
-    }
-    doc::generate_for_path(&new_vm(), "../std", out).unwrap_or_else(|err| panic!("{}", err));
-
-    let out = fs::canonicalize(out).unwrap();
-    let errors = cargo_deadlinks::unavailable_urls(
-        &out,
-        &cargo_deadlinks::CheckContext { check_http: true },
-    )
-    .collect::<Vec<_>>();
-
-    assert!(errors.is_empty(), "{}", errors.iter().format("\n"));
-}
+// FIXME Enable once cargo-deadlinks can be used as a crate
+// #[test]
+// fn check_links() {
+//     let _ = env_logger::try_init();
+//
+//     let out = Path::new("../target/doc_test");
+//     if out.exists() {
+//         fs::remove_dir_all(out).unwrap_or_else(|err| panic!("{}", err));
+//     }
+//     doc::generate_for_path(&new_vm(), "../std", out).unwrap_or_else(|err| panic!("{}", err));
+//
+//     let out = fs::canonicalize(out).unwrap();
+//     let errors = cargo_deadlinks::unavailable_urls(
+//         &out,
+//         &cargo_deadlinks::CheckContext { check_http: true },
+//     )
+//     .collect::<Vec<_>>();
+//
+//     assert!(errors.is_empty(), "{}", errors.iter().format("\n"));
+// }

@@ -97,8 +97,6 @@ mod tests {
 
     #[test]
     fn hello_world() {
-        let _ = env_logger::try_init();
-
         let mut runtime = Runtime::new().unwrap();
 
         let port = 12234;
@@ -117,8 +115,6 @@ mod tests {
 
     #[test]
     fn echo() {
-        let _ = env_logger::try_init();
-
         let mut runtime = Runtime::new().unwrap();
 
         let port = 12235;
