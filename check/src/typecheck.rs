@@ -24,8 +24,8 @@ use crate::base::{
     scoped_map::{self, ScopedMap},
     symbol::{Symbol, SymbolModule, SymbolRef, Symbols},
     types::{
-        self, Alias, AliasRef, AppVec, ArcType, ArgType, Field, Flags, Generic, ModType,
-        ModTypeRef, PrimitiveEnv, Type, TypeCache, TypeContext, TypeEnv, TypeExt, TypeModifier,
+        self, Alias, AliasRef, AppVec, ArcType, ArgType, Field, Flags, Generic, PrimitiveEnv, Type,
+        TypeCache, TypeContext, TypeEnv, TypeExt,
     },
 };
 
@@ -37,12 +37,16 @@ use crate::{
     unify, unify_type, TypecheckEnv,
 };
 
-use self::generalize::TypeGeneralizer;
+use self::{
+    generalize::TypeGeneralizer,
+    mod_type::{ModType, ModTypeRef, TypeModifier},
+};
 
 pub use self::error::{Help, HelpError, SpannedTypeError, TypeError};
 
 mod error;
 mod generalize;
+mod mod_type;
 
 pub(crate) type TcResult<T> = Result<T, TypeError<Symbol, RcType<Symbol>>>;
 
@@ -85,10 +89,10 @@ impl<'a> KindEnv for Environment<'a> {
 impl<'a> TypeEnv for Environment<'a> {
     type Type = RcType;
 
-    fn find_type(&self, id: &SymbolRef) -> Option<ModTypeRef> {
+    fn find_type(&self, id: &SymbolRef) -> Option<&ArcType> {
         self.stack
             .get(id)
-            .map(|bind| bind.typ.as_ref())
+            .map(|bind| &bind.typ.concrete)
             .or_else(|| self.environment.find_type(id))
     }
 
@@ -109,6 +113,15 @@ impl<'a> PrimitiveEnv for Environment<'a> {
 impl<'a> MetadataEnv for Environment<'a> {
     fn get_metadata(&self, id: &SymbolRef) -> Option<&Arc<Metadata>> {
         self.environment.get_metadata(id)
+    }
+}
+
+impl Environment<'_> {
+    fn find_mod_type(&self, id: &SymbolRef) -> Option<ModTypeRef> {
+        self.stack
+            .get(id)
+            .map(|bind| bind.typ.as_ref())
+            .or_else(|| self.environment.find_type(id).map(ModType::rigid))
     }
 }
 
@@ -203,7 +216,7 @@ impl<'a> Typecheck<'a> {
     }
 
     fn find(&mut self, id: &Symbol) -> TcResult<ModType> {
-        match self.environment.find_type(id).map(|t| t.to_owned()) {
+        match self.environment.find_mod_type(id).map(|t| t.to_owned()) {
             Some(typ) => {
                 self.named_variables.clear();
                 debug!("Find {} : {}", self.symbols.string(id), typ);
@@ -894,6 +907,7 @@ impl<'a> Typecheck<'a> {
                     // TODO Make this more general so it can error when not matching on all the
                     // variants
                     {
+                        *unaliased_scrutinee_type = self.subs.zonk(&unaliased_scrutinee_type);
                         let replaced = match (&alt.pattern.value, &**unaliased_scrutinee_type) {
                             (Pattern::Constructor(id, _), Type::Variant(row)) => {
                                 let mut variant_iter = row.row_iter();
@@ -2015,13 +2029,20 @@ impl<'a> Typecheck<'a> {
             }
 
             debug!("End generalize recursive");
-
-            // Update the implicit bindings with the generalized types we just created
-            let bindings = self.implicit_resolver.implicit_bindings.last_mut().unwrap();
-
-            let stack = &self.environment.stack;
-            bindings.update(|name| Some(stack.get(name).unwrap().typ.concrete.clone()));
         }
+        // Update the implicit bindings with the generalized types we just created
+        let bindings = self.implicit_resolver.implicit_bindings.last_mut().unwrap();
+        let stack = &self.environment.stack;
+        bindings.update(|name| {
+            Some(
+                stack
+                    .get(name)
+                    .unwrap_or_else(|| ice!("Implicit binding `{}` could not be updated", name))
+                    .typ
+                    .concrete
+                    .clone(),
+            )
+        });
 
         debug!("Typecheck `in`");
         self.environment.type_variables.exit_scope();
@@ -3157,7 +3178,7 @@ pub fn translate_projected_type(
             }
             None => Some(
                 env.find_type(&symbol)
-                    .map(|t| t.concrete.clone())
+                    .cloned()
                     .or_else(|| {
                         env.find_type_info(&symbol)
                             .map(|alias| alias.typ(interner).into_owned())
