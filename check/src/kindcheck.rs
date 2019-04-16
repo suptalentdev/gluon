@@ -32,8 +32,6 @@ pub struct KindCheck<'a> {
     function1_kind: ArcKind,
     /// A cached two argument kind function, `Type -> Type -> Type`
     function2_kind: ArcKind,
-    /// A cached effect field kind, `Row -> Type -> Type`
-    effect_field_kind: ArcKind,
 }
 
 fn walk_move_kind<F>(kind: ArcKind, f: &mut F) -> ArcKind
@@ -78,9 +76,8 @@ impl<'a> KindCheck<'a> {
             idents: idents,
             subs: Substitution::new((), Default::default()),
             function1_kind: function1_kind.clone(),
-            function2_kind: Kind::function(typ, function1_kind.clone()),
-            effect_field_kind: Kind::function(kind_cache.row(), function1_kind),
-            kind_cache,
+            function2_kind: Kind::function(typ, function1_kind),
+            kind_cache: kind_cache,
         }
     }
 
@@ -103,10 +100,6 @@ impl<'a> KindCheck<'a> {
 
     pub fn function1_kind(&self) -> ArcKind {
         self.function1_kind.clone()
-    }
-
-    pub fn effect_field_kind(&self) -> ArcKind {
-        self.effect_field_kind.clone()
     }
 
     pub fn function2_kind(&self) -> ArcKind {
@@ -185,7 +178,7 @@ impl<'a> KindCheck<'a> {
         let kind = self.kindcheck(typ)?;
         let kind = self.unify(typ.span(), expected, kind)?;
         self.finalize_type(typ);
-        trace!("Kindchecked {:#?}", typ);
+        info!("Kindchecked {:#?}", typ);
         Ok(kind)
     }
 
@@ -298,8 +291,8 @@ impl<'a> KindCheck<'a> {
                 let mut iter = types::row_iter_mut(row);
                 for field in &mut iter {
                     let kind = self.kindcheck(&mut field.typ)?;
-                    let effect_field_kind = self.effect_field_kind();
-                    self.unify(field.typ.span(), &effect_field_kind, kind)?;
+                    let function_kind = self.function1_kind();
+                    self.unify(field.typ.span(), &function_kind, kind)?;
                 }
                 let kind = self.kindcheck(iter.current_type())?;
                 let row_kind = self.row_kind();

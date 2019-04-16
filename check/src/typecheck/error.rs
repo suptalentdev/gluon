@@ -51,10 +51,6 @@ pub enum TypeError<I, T> {
     EmptyCase,
     Message(String),
     UnableToResolveImplicit(implicits::Error<T>),
-    TypeConstructorReturnsWrongType {
-        expected: I,
-        actual: T,
-    },
 }
 
 impl<I, T> From<KindCheckError<I, T>> for TypeError<I, T> {
@@ -93,11 +89,11 @@ where
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::TypeError::*;
         use pretty::{Arena, DocAllocator};
-        match &*self {
-            UndefinedVariable(name) => write!(f, "Undefined variable `{}`", name),
-            NotAFunction(typ) => write!(f, "`{}` is not a function", typ),
-            UndefinedType(name) => write!(f, "Type `{}` is not defined", name),
-            UndefinedField(typ, field) => {
+        match *self {
+            UndefinedVariable(ref name) => write!(f, "Undefined variable `{}`", name),
+            NotAFunction(ref typ) => write!(f, "`{}` is not a function", typ),
+            UndefinedType(ref name) => write!(f, "Type `{}` is not defined", name),
+            UndefinedField(ref typ, ref field) => {
                 let fields = [field.clone()];
                 let filter = unify_type::similarity_filter(typ, &fields);
                 let arena = Arena::<()>::new();
@@ -113,11 +109,11 @@ where
                 )?;
                 Ok(())
             }
-            Unification(expected, actual, errors) => {
+            Unification(ref expected, ref actual, ref errors) => {
                 let filters = errors
                     .iter()
-                    .filter_map(|err| match err {
-                        UnifyError::Other(err) => Some(err.make_filter()),
+                    .filter_map(|err| match *err {
+                        UnifyError::Other(ref err) => Some(err.make_filter()),
                         _ => None,
                     })
                     .collect::<Vec<_>>();
@@ -166,8 +162,8 @@ where
                     return Ok(());
                 }
                 for error in &errors[..errors.len() - 1] {
-                    match error {
-                        UnifyError::Other(err) => {
+                    match *error {
+                        UnifyError::Other(ref err) => {
                             err.filter_fmt(&filter, f)?;
                             writeln!(f)?;
                         }
@@ -176,23 +172,25 @@ where
                 }
                 write!(f, "{}", errors.last().unwrap())
             }
-            PatternError(typ, expected_len) => {
+            PatternError(ref typ, expected_len) => {
                 write!(f, "Type {} has {} to few arguments", typ, expected_len)
             }
-            KindError(err) => kindcheck::fmt_kind_error(err, f),
-            RecursionCheck(err) => write!(f, "{}", err),
-            DuplicateTypeDefinition(id) => write!(
+            KindError(ref err) => kindcheck::fmt_kind_error(err, f),
+            RecursionCheck(ref err) => write!(f, "{}", err),
+            DuplicateTypeDefinition(ref id) => write!(
                 f,
                 "Type '{}' has been already been defined in this module",
                 id
             ),
-            DuplicateField(id) => write!(f, "The record has more than one field named '{}'", id),
-            InvalidProjection(typ) => write!(
+            DuplicateField(ref id) => {
+                write!(f, "The record has more than one field named '{}'", id)
+            }
+            InvalidProjection(ref typ) => write!(
                 f,
                 "Type '{}' is not a type which allows field accesses",
                 typ
             ),
-            UndefinedRecord { fields } => {
+            UndefinedRecord { ref fields } => {
                 write!(f, "No type found with the following fields: ")?;
                 write!(f, "{}", fields[0])?;
                 for field in &fields[1..] {
@@ -201,13 +199,8 @@ where
                 Ok(())
             }
             EmptyCase => write!(f, "`case` expression with no alternatives"),
-            Message(msg) => write!(f, "{}", msg),
-            UnableToResolveImplicit(err) => write!(f, "{}", err),
-            TypeConstructorReturnsWrongType { expected, actual } => write!(
-                f,
-                "The constructor returns the type `{}` instead of the expected type `{}`",
-                actual, expected
-            ),
+            Message(ref msg) => write!(f, "{}", msg),
+            UnableToResolveImplicit(ref err) => write!(f, "{}", err),
         }
     }
 }

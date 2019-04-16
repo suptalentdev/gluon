@@ -11,6 +11,8 @@ use std::path::Path;
 
 use structopt::StructOpt;
 
+use gluon_doc::Opt;
+
 fn main() {
     if let Err(err) = main_() {
         eprintln!("{}", err);
@@ -20,7 +22,7 @@ fn main() {
 fn main_() -> Result<(), failure::Error> {
     env_logger::init();
 
-    let opt = gluon_doc::Opt::from_args();
+    let opt = Opt::from_args();
 
     if let Some(jobs) = opt.jobs {
         rayon::ThreadPoolBuilder::new()
@@ -28,7 +30,7 @@ fn main_() -> Result<(), failure::Error> {
             .build_global()?;
     }
 
-    gluon_doc::generate(&gluon_doc::Options::from(&opt), &gluon::new_vm())?;
+    gluon_doc::generate_for_path(&gluon::new_vm(), &opt.input, &opt.output)?;
 
     if opt.open {
         let path = Path::new(&opt.output)

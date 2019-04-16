@@ -718,16 +718,15 @@ impl<Id, T> Field<Id, T> {
         Field { name, typ }
     }
 
-    pub fn ctor<J>(ctor_name: Id, elems: J) -> Self
+    pub fn ctor<S, I>(symbols: &mut S, name: Id, elems: I) -> Self
     where
-        J: IntoIterator<Item = T>,
-        J::IntoIter: DoubleEndedIterator,
+        S: ?Sized + IdentEnv<Ident = Id>,
+        I: IntoIterator<Item = T>,
         T: From<Type<Id, T>>,
     {
-        let typ = Type::function_type(ArgType::Constructor, elems, Type::opaque());
         Field {
-            name: ctor_name,
-            typ,
+            name,
+            typ: Type::tuple(symbols, elems),
         }
     }
 }
@@ -737,7 +736,6 @@ impl<Id, T> Field<Id, T> {
 pub enum ArgType {
     Explicit,
     Implicit,
-    Constructor,
 }
 
 /// The representation of gluon's types.
@@ -964,10 +962,9 @@ where
         T::from(Type::EmptyRow)
     }
 
-    pub fn function<I>(args: I, ret: T) -> T
+    pub fn function(args: Vec<T>, ret: T) -> T
     where
-        I: IntoIterator<Item = T>,
-        I::IntoIter: DoubleEndedIterator<Item = T>,
+        T: Clone,
     {
         Self::function_type(ArgType::Explicit, args, ret)
     }
@@ -1110,10 +1107,10 @@ where
     }
 
     pub fn alias_ident(&self) -> Option<&Id> {
-        match self {
-            Type::App(id, _) => id.alias_ident(),
-            Type::Ident(id) => Some(id),
-            Type::Alias(alias) => Some(&alias.name),
+        match *self {
+            Type::App(ref id, _) => id.alias_ident(),
+            Type::Ident(ref id) => Some(id),
+            Type::Alias(ref alias) => Some(&alias.name),
             _ => None,
         }
     }
@@ -1362,13 +1359,6 @@ pub trait TypeExt: Deref<Target = Type<<Self as TypeExt>::Id, Self>> + Clone + S
 
     fn strong_count(typ: &Self) -> usize;
 
-    fn spine(&self) -> &Self {
-        match &**self {
-            Type::App(ref id, _) => id.spine(),
-            _ => self,
-        }
-    }
-
     /// Returns an iterator over all type fields in a record.
     /// `{ Test, Test2, x, y } => [Test, Test2]`
     fn type_field_iter(&self) -> TypeFieldIterator<Self> {
@@ -1412,9 +1402,9 @@ pub trait TypeExt: Deref<Target = Type<<Self as TypeExt>::Id, Self>> + Clone + S
         if !self.flags().intersects(Flags::HAS_GENERICS) {
             return None;
         }
-        match &**self {
-            Type::Generic(generic) => named_variables.get(&generic.id).cloned(),
-            Type::Forall(params, typ) => {
+        match **self {
+            Type::Generic(ref generic) => named_variables.get(&generic.id).cloned(),
+            Type::Forall(ref params, ref typ) => {
                 let removed: AppVec<_> = params
                     .iter()
                     .flat_map(|param| named_variables.remove_entry(&param.id))
@@ -1452,10 +1442,7 @@ pub trait TypeExt: Deref<Target = Type<<Self as TypeExt>::Id, Self>> + Clone + S
         top(self).pretty(&Printer::new(arena, &()))
     }
 
-    fn display<A>(&self, width: usize) -> TypeFormatter<Self::Id, Self, A>
-    where
-        Self::Id: AsRef<str>,
-    {
+    fn display<A>(&self, width: usize) -> TypeFormatter<Self::Id, Self, A> {
         TypeFormatter::new(self).width(width)
     }
 
@@ -1883,13 +1870,6 @@ where
     }
 }
 
-pub fn ctor_args<Id, T>(typ: &T) -> ArgIterator<T>
-where
-    T: Deref<Target = Type<Id, T>>,
-{
-    ArgIterator { typ }
-}
-
 pub struct ArgIterator<'a, T: 'a> {
     /// The current type being iterated over. After `None` has been returned this is the return
     /// type.
@@ -2187,7 +2167,6 @@ where
                             ..
                         } => {
                             doc = doc.append(arena.concat(fields.iter().map(|field| {
-                                let typ = remove_forall(&field.typ);
                                 chain![arena;
                                     if first {
                                         first = false;
@@ -2197,15 +2176,15 @@ where
                                     },
                                     "| ",
                                     field.name.as_ref(),
-                                    if typ.as_function().is_some() {
-                                        arena.concat(arg_iter(typ).map(|arg| {
+                                    if field.typ.as_function().is_some() {
+                                        arena.concat(arg_iter(&field.typ).map(|arg| {
                                             chain![arena;
                                                 " ",
                                                 dt(Prec::Constructor, arg).pretty(printer)
                                             ]
                                         }))
                                     } else {
-                                        arena.concat(row_iter(typ).map(|field| {
+                                        arena.concat(row_iter(&field.typ).map(|field| {
                                             chain![arena;
                                                 " ",
                                                 dt(Prec::Constructor, &field.typ).pretty(printer)

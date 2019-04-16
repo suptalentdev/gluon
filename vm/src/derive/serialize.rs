@@ -1,12 +1,9 @@
-use crate::base::{
-    ast::{
-        Alternative, Argument, AstType, Expr, ExprField, Pattern, TypeBinding, TypedIdent,
-        ValueBinding,
-    },
-    pos,
-    symbol::{Symbol, Symbols},
-    types::{ctor_args, remove_forall, row_iter, Type},
+use crate::base::ast::{
+    Alternative, Argument, AstType, Expr, ExprField, Pattern, TypeBinding, TypedIdent, ValueBinding,
 };
+use crate::base::pos;
+use crate::base::symbol::{Symbol, Symbols};
+use crate::base::types::{remove_forall, row_iter, Type};
 
 use crate::macros::Error;
 
@@ -93,7 +90,7 @@ pub fn generate(
         Type::Variant(ref row) => {
             let alts = row_iter(row)
                 .map(|variant| {
-                    let pattern_args: Vec<_> = ctor_args(&variant.typ)
+                    let pattern_args: Vec<_> = row_iter(&variant.typ)
                         .enumerate()
                         .map(|(i, _typ)| TypedIdent::new(Symbol::from(format!("arg_{}", i))))
                         .collect();
@@ -176,7 +173,7 @@ pub fn generate(
         ))],
         expr: serializer_expr,
         metadata: Default::default(),
-        typ: Some(Type::function(Some(self_type.clone()), Type::hole())),
+        typ: Some(Type::function(collect![self_type.clone()], Type::hole())),
         resolved_type: Type::hole(),
     };
 

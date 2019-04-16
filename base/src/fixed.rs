@@ -171,11 +171,6 @@ impl<V> FixedVecMap<V> {
         }
     }
 
-    pub fn remove(&mut self, key: usize) {
-        self.map.get_mut().remove(key);
-        // TODO Actually remove it from values as well
-    }
-
     pub fn try_insert(&self, key: usize, value: V) -> Result<(), (usize, V)> {
         if self.get(key).is_some() {
             Err((key, value))

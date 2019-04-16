@@ -469,12 +469,10 @@ impl GlobalVmState {
             add_builtin_type::<::std::string::String>(self, BuiltinType::String);
             add_builtin_type::<char>(self, BuiltinType::Char)
         }
-        self.register_type::<IO<Generic<A>>>("std.io.IO", &["a"])
+        self.register_type::<IO<Generic<A>>>("IO", &["a"]).unwrap();
+        self.register_type::<Lazy<Generic<A>>>("Lazy", &["a"])
             .unwrap();
-        self.register_type::<Lazy<Generic<A>>>("std.lazy.Lazy", &["a"])
-            .unwrap();
-        self.register_type::<Thread>("std.thread.Thread", &[])
-            .unwrap();
+        self.register_type::<Thread>("Thread", &[]).unwrap();
         Ok(())
     }
 

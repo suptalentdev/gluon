@@ -207,13 +207,13 @@ where
         // `l` and `r` must have the same type, if one is a variable that variable is
         // unified with whatever the other type is
         match (l.get_var(), r.get_var()) {
-            (_, Some(_)) => {
-                let replacement = subs.union(r, l)?;
+            (_, Some(r_var)) => {
+                let replacement = subs.union(r_var, l)?;
                 debug!("Union {} <> {}", l, replacement.as_ref().unwrap_or(r));
                 Ok(None)
             }
-            (Some(_), _) => {
-                let replacement = subs.union(l, r)?;
+            (Some(l_var), _) => {
+                let replacement = subs.union(l_var, r)?;
                 debug!("Union {} <> {}", replacement.as_ref().unwrap_or(l), r);
                 Ok(None)
             }
