@@ -187,10 +187,12 @@ fn gen_push_impl(
         }
     };
 
+    let fields_len_u32 = fields_len as u32;
     quote! {
         #(#stack_pushes)*
         let vm = ctx.thread();
         #new_data;
+        ctx.context().slide(#fields_len_u32);
     }
 }
 
