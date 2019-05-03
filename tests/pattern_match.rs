@@ -5,8 +5,8 @@ extern crate gluon;
 #[macro_use]
 mod support;
 
-use crate::support::*;
 use gluon::Compiler;
+use crate::support::*;
 
 test_expr! { prelude match_on_bool,
 r#"

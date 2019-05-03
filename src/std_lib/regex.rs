@@ -6,13 +6,11 @@ use crate::real_std::error::Error as StdError;
 
 use crate::vm::{self, api::Collect, thread::Thread, ExternModule};
 
-#[derive(Debug, Userdata, VmType)]
-#[gluon(vm_type = "std.regex.Regex")]
+#[derive(Debug, Userdata)]
 #[gluon(crate_name = "vm")]
 struct Regex(regex::Regex);
 
-#[derive(Debug, Userdata, VmType)]
-#[gluon(vm_type = "std.regex.Error")]
+#[derive(Debug, Userdata)]
 #[gluon(crate_name = "vm")]
 struct Error(regex::Error);
 

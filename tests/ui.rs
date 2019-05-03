@@ -14,10 +14,8 @@ fn macro_error_with_line_column_info() {
             .unwrap(),
         r#"error: Could not find module 'undefined'. Searched `.`.
 - <test>:1:9
-  |
 1 | import! undefined
   |         ^^^^^^^^^
-  |
 "#
     );
 }

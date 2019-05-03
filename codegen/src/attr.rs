@@ -27,7 +27,6 @@ pub enum CrateName {
 pub struct Container {
     pub crate_name: CrateName,
     pub vm_type: Option<String>,
-    pub newtype: bool,
 }
 
 impl Container {
@@ -36,7 +35,6 @@ impl Container {
 
         let mut crate_name = CrateName::None;
         let mut vm_type = None;
-        let mut newtype = false;
 
         for meta_items in item.attrs.iter().filter_map(get_gluon_meta_items) {
             for meta_item in meta_items {
@@ -53,10 +51,6 @@ impl Container {
                         crate_name = CrateName::GluonVm;
                     }
 
-                    Meta(Word(ref w)) if w == "newtype" => {
-                        newtype = true;
-                    }
-
                     Meta(NameValue(ref m)) if m.ident == "vm_type" => {
                         vm_type = Some(get_lit_str(&m.ident, &m.ident, &m.lit).unwrap().value())
                     }
@@ -69,7 +63,6 @@ impl Container {
         Container {
             crate_name,
             vm_type,
-            newtype,
         }
     }
 }

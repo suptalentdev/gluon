@@ -47,7 +47,6 @@ impl<'vm, 'value> api::Pushable<'vm> for Enum {
 }
 
 impl<'vm, 'value> api::Getable<'vm, 'value> for Enum {
-    impl_getable_simple!();
     fn from_value(thread: &'vm Thread, value: vm::Variants<'value>) -> Self {
         api::de::De::from_value(thread, value).0
     }
@@ -272,8 +271,6 @@ impl<'vm, 'value, T> Getable<'vm, 'value> for GluonUser<T>
 where
     T: Getable<'vm, 'value>,
 {
-    impl_getable_simple!();
-
     fn from_value(vm: &'vm Thread, data: Variants<'value>) -> GluonUser<T> {
         // get the data, it must be a complex type
         let data = match data.as_ref() {
@@ -334,8 +331,7 @@ fn marshal_wrapper() -> Result<()> {
     Ok(())
 }
 
-#[derive(Userdata, Debug, Clone, VmType)]
-#[gluon(vm_type = "WindowHandle")]
+#[derive(Userdata, Debug, Clone)]
 struct WindowHandle {
     id: Arc<u64>,
     metadata: Arc<str>,
