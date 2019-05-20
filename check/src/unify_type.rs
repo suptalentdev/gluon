@@ -1194,7 +1194,9 @@ impl<'a, 'e> UnifierState<'a, Subsume<'e>> {
                 let l = l.skolemize(&mut self.unifier.subs, &mut map);
 
                 match **self.unifier.subs.real(&l) {
-                    Type::Function(ArgType::Implicit, _, _) => self.subsume_check(&l, &r),
+                    Type::Variable(_) | Type::Function(ArgType::Implicit, _, _) => {
+                        self.subsume_check(&l, &r)
+                    }
 
                     _ => {
                         receiver(&arg_type);

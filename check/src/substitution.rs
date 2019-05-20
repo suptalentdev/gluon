@@ -1,5 +1,7 @@
 use std::{cell::RefCell, default::Default, fmt};
 
+use union_find::{QuickFindUf, Union, UnionByRank, UnionFind, UnionResult};
+
 use crate::base::{
     fixed::{FixedVec, FixedVecMap},
     kind::ArcKind,
@@ -33,7 +35,7 @@ where
 {
     /// Union-find data structure used to store the relationships of all variables in the
     /// substitution
-    union: RefCell<ena::unify::InPlaceUnificationTable<UnionByLevel>>,
+    union: RefCell<QuickFindUf<UnionByLevel>>,
     /// Vector containing all created variables for this substitution. Needed for the `real` method
     /// which needs to always be able to return a `&T` reference
     variables: FixedVec<T>,
@@ -41,7 +43,6 @@ where
     /// stored here. As the type stored will never changed we use a `FixedVecMap` lets `real` return
     /// `&T` from this map safely.
     types: FixedVecMap<T>,
-    types_undo: RefCell<Vec<u32>>,
     factory: T::Factory,
     interner: T::Interner,
     variable_cache: RefCell<Vec<T>>,
@@ -187,61 +188,57 @@ where
     occurs.occurs
 }
 
-pub struct Snapshot {
-    snapshot: ena::unify::Snapshot<ena::unify::InPlace<UnionByLevel>>,
-    level: u32,
-    types_undo_len: usize,
-}
-
 /// Specialized union implementation which makes sure that variables with a higher level always
 /// point to the lower level variable.
 ///
 /// map.union(1, 2);
 /// map.find(2) -> 1
 /// map.find(1) -> 1
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct UnionByLevel {
-    index: u32,
+#[derive(Debug)]
+struct UnionByLevel {
+    rank: UnionByRank,
+    level: u32,
 }
 
-impl From<u32> for UnionByLevel {
-    fn from(index: u32) -> Self {
-        ena::unify::UnifyKey::from_index(index)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Level(u32);
-
-impl ena::unify::UnifyValue for Level {
-    type Error = ena::unify::NoError;
-    fn unify_values(l: &Self, r: &Self) -> Result<Self, Self::Error> {
-        Ok(if l < r { l.clone() } else { r.clone() })
+impl Default for UnionByLevel {
+    fn default() -> UnionByLevel {
+        UnionByLevel {
+            rank: UnionByRank::default(),
+            level: ::std::u32::MAX,
+        }
     }
 }
 
-impl ena::unify::UnifyKey for UnionByLevel {
-    type Value = Level;
-
-    fn index(&self) -> u32 {
-        self.index
-    }
-
-    fn from_index(index: u32) -> Self {
-        Self { index }
-    }
-
-    fn tag() -> &'static str {
-        "UnionByLevel"
-    }
-
+impl Union for UnionByLevel {
     #[inline]
-    fn order_roots(a: Self, a_level: &Level, b: Self, b_level: &Level) -> Option<(Self, Self)> {
+    fn union(left: UnionByLevel, right: UnionByLevel) -> UnionResult<UnionByLevel> {
         use std::cmp::Ordering;
-        match a_level.cmp(&b_level) {
-            Ordering::Less => Some((a, b)),
-            Ordering::Greater => Some((b, a)),
-            Ordering::Equal => None,
+        let (rank_result, rank) = match Union::union(left.rank, right.rank) {
+            UnionResult::Left(l) => (
+                UnionResult::Left(UnionByLevel {
+                    rank: l,
+                    level: left.level,
+                }),
+                l,
+            ),
+            UnionResult::Right(r) => (
+                UnionResult::Right(UnionByLevel {
+                    rank: r,
+                    level: left.level,
+                }),
+                r,
+            ),
+        };
+        match left.level.cmp(&right.level) {
+            Ordering::Less => UnionResult::Left(UnionByLevel {
+                rank: rank,
+                level: left.level,
+            }),
+            Ordering::Greater => UnionResult::Right(UnionByLevel {
+                rank: rank,
+                level: right.level,
+            }),
+            Ordering::Equal => rank_result,
         }
     }
 }
@@ -266,10 +263,9 @@ where
 {
     pub fn new(factory: T::Factory, interner: T::Interner) -> Substitution<T> {
         Substitution {
-            union: RefCell::new(ena::unify::InPlaceUnificationTable::new()),
+            union: RefCell::new(QuickFindUf::new(0)),
             variables: FixedVec::new(),
             types: FixedVecMap::new(),
-            types_undo: Default::default(),
             factory: factory,
             interner,
             variable_cache: Default::default(),
@@ -286,19 +282,15 @@ where
                 "Tried to insert variable which is not allowed as that would cause memory \
                  unsafety"
             ),
-            None => {
-                self.types_undo.borrow_mut().push(var);
-                match self.types.try_insert(var as usize, t.into()) {
-                    Ok(()) => (),
-                    Err(_) => ice!("Expected variable to not have a type associated with it"),
-                }
-            }
+            None => match self.types.try_insert(var as usize, t.into()) {
+                Ok(()) => (),
+                Err(_) => ice!("Expected variable to not have a type associated with it"),
+            },
         }
     }
 
     pub fn replace(&mut self, var: u32, t: T) {
         debug_assert!(t.get_id() != Some(var));
-        self.types_undo.borrow_mut().push(var);
         self.types.insert(var as usize, t.into());
     }
 
@@ -306,39 +298,17 @@ where
         self.types.remove(var as usize);
     }
 
-    pub fn snapshot(&mut self) -> Snapshot {
-        Snapshot {
-            snapshot: self.union.get_mut().snapshot(),
-            level: self.var_id(),
-            types_undo_len: self.types_undo.get_mut().len(),
-        }
-    }
-
-    pub fn commit(&mut self, snapshot: Snapshot) {
-        self.union.get_mut().commit(snapshot.snapshot);
-    }
-
-    pub fn rollback_to(&mut self, snapshot: Snapshot) {
-        self.union.get_mut().rollback_to(snapshot.snapshot);
-        let variable_cache = self.variable_cache.get_mut();
-        while self.variables.len() > snapshot.level as usize {
-            variable_cache.push(self.variables.pop().unwrap());
-        }
-
-        for i in self.types_undo.get_mut().drain(snapshot.types_undo_len..) {
-            self.types.remove(i as usize);
-        }
-    }
-
     /// Assumes that no variables unified with anything (but variables < level may exist)
     pub fn clear_from(&mut self, level: u32) {
-        self.union = RefCell::new(ena::unify::InPlaceUnificationTable::new());
+        self.union = RefCell::new(QuickFindUf::new(0));
         let mut u = self.union.borrow_mut();
         for _ in 0..level {
-            u.new_key(Level(::std::u32::MAX));
+            u.insert(UnionByLevel {
+                ..UnionByLevel::default()
+            });
         }
 
-        let variable_cache = self.variable_cache.get_mut();
+        let mut variable_cache = self.variable_cache.borrow_mut();
         // Since no types should be unified with anything we can remove all of this and reuse the
         // unique values
         variable_cache.extend(self.types.drain().filter(T::is_unique));
@@ -350,7 +320,7 @@ where
     /// Creates a new variable
     pub fn new_var(&self) -> T
     where
-        T: Clone + fmt::Display,
+        T: Clone,
     {
         self.new_var_fn(|var| match self.variable_cache.borrow_mut().pop() {
             Some(mut typ) => {
@@ -367,12 +337,11 @@ where
         F: FnOnce(u32) -> T,
     {
         let var_id = self.variables.len() as u32;
-        let id = self
-            .union
-            .borrow_mut()
-            .new_key(Level(::std::u32::MAX))
-            .index;
-        assert!(id as usize == self.variables.len());
+        let id = self.union.borrow_mut().insert(UnionByLevel {
+            level: var_id,
+            ..UnionByLevel::default()
+        });
+        assert!(id == self.variables.len());
         debug!("New var {}", self.variables.len());
 
         let var = f(var_id);
@@ -399,11 +368,11 @@ where
 
     pub fn find_type_for_var(&self, var: u32) -> Option<&T> {
         let mut union = self.union.borrow_mut();
-        if var as usize >= union.len() {
+        if var as usize >= union.size() {
             return None;
         }
-        let index = union.find(var).index;
-        self.types.get(index as usize).or_else(|| {
+        let index = union.find(var as usize);
+        self.types.get(index).or_else(|| {
             if var == index as u32 {
                 None
             } else {
@@ -416,12 +385,12 @@ where
     pub fn update_level(&self, var: u32, other: u32) {
         let level = ::std::cmp::min(self.get_level(var), self.get_level(other));
         let mut union = self.union.borrow_mut();
-        union.union_value(other, Level(level));
+        union.get_mut(other as usize).level = level;
     }
 
     pub fn set_level(&self, var: u32, level: u32) {
         let mut union = self.union.borrow_mut();
-        union.union_value(var, Level(level));
+        union.get_mut(var as usize).level = level;
     }
 
     pub fn get_level(&self, mut var: u32) -> u32 {
@@ -429,8 +398,9 @@ where
             var = v.get_var().map_or(var, |v| v.get_id());
         }
         let mut union = self.union.borrow_mut();
-        union.union_value(var, Level(var));
-        union.probe_value(var).0
+        let level = &mut union.get_mut(var as usize).level;
+        *level = ::std::cmp::min(*level, var);
+        *level
     }
 
     pub fn replace_variable(&self, typ: &T) -> Option<T>
@@ -490,7 +460,9 @@ impl<T: Substitutable + PartialEq + Clone> Substitution<T> {
             let typ = resolved_type.unwrap_or(typ);
             match typ.get_var().map(|v| v.get_id()) {
                 Some(other_id) if variable.get_var().is_some() => {
-                    self.union.borrow_mut().union(id, other_id);
+                    self.union
+                        .borrow_mut()
+                        .union(id as usize, other_id as usize);
                     self.update_level(id.get_id(), other_id);
                     self.update_level(other_id, id.get_id());
                 }

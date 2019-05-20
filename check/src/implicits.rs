@@ -624,20 +624,12 @@ impl<'a, 'b> ResolveImplicitsVisitor<'a, 'b> {
             .implicit_bindings
             .get_candidates(&self.tc.subs, &demand.constraint, implicit_bindings_level)
             .rev();
-        let mut snapshot = Some(self.tc.subs.snapshot());
         let found_candidate = candidates.by_ref().find(|x| {
             let (path, typ) = &*x;
-            if self.try_resolve_implicit(path, to_resolve, demand, typ) {
-                true
-            } else {
-                self.tc.subs.rollback_to(snapshot.take().unwrap());
-                snapshot = Some(self.tc.subs.snapshot());
-                false
-            }
+            self.try_resolve_implicit(path, to_resolve, demand, typ)
         });
         match found_candidate {
             Some(x) => {
-                self.tc.subs.commit(snapshot.unwrap());
                 let (candidate_path, candidate_type) = &x;
                 let new_demands = to_resolve
                     .iter()
@@ -681,10 +673,7 @@ impl<'a, 'b> ResolveImplicitsVisitor<'a, 'b> {
                 let mut additional_candidates: Vec<_> = candidates
                     .filter(|x| {
                         let (path, typ) = &*x;
-                        let snapshot = self.tc.subs.snapshot();
-                        let b = self.try_resolve_implicit(path, &mut Vec::new(), demand, typ);
-                        self.tc.subs.rollback_to(snapshot);
-                        b
+                        self.try_resolve_implicit(path, &mut Vec::new(), demand, typ)
                     })
                     .map(|bind| AmbiguityEntry {
                         path: bind.0.iter().map(|id| &id.name).format(".").to_string(),

@@ -1494,11 +1494,7 @@ type Eff r a =
     forall x . (| Pure a | Impure (r x) (x -> Eff r a))
 
 type STRef s a = { }
-type State s r a =
-    | New : forall b . b -> State s r ()
-    | Read : (STRef s a) -> State s r a
-    | Write : forall b . b -> (STRef s b) -> State s r ()
-    .. r
+type State s r a = forall b . (| New b | Read (STRef s a) | Write b (STRef s b) .. r)
 
 let extract_state x : forall s . [| st : State s | r |] a -> State s r a = convert_variant! x
 1
