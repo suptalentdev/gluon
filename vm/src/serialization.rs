@@ -15,12 +15,12 @@ use crate::base::symbol::{Symbol, Symbols};
 use crate::base::types::ArcType;
 
 use crate::array::Array;
-use crate::gc::{DataDef, GcPtr, OwnedPtr, WriteOnly};
-use crate::thread::{RootedThread, RootedValue, Thread, ThreadInternal};
+use crate::gc::{DataDef, GcPtr, WriteOnly};
+use crate::thread::{RootedThread, Thread, ThreadInternal};
 use crate::types::VmIndex;
 use crate::value::{
     BytecodeFunction, Callable, ClosureData, ExternFunction, PartialApplicationData,
-    PartialApplicationDataDef, Value, ValueArray, ValueRepr,
+    PartialApplicationDataDef, Value, ValueRepr,
 };
 use crate::Variants;
 
@@ -106,17 +106,13 @@ impl<T> From<DeSeed> for Seed<T> {
 
 pub mod gc {
     use super::*;
-    use crate::serde::{
-        de::{Deserialize, DeserializeState, Deserializer},
-        ser::{Serialize, SerializeState, Serializer},
-    };
+    use crate::serde::de::{Deserialize, DeserializeState, Deserializer};
+    use crate::serde::ser::{Serialize, SerializeState, Serializer};
 
-    use crate::{
-        interner::InternedStr,
-        thread::ThreadInternal,
-        types::VmTag,
-        value::{DataStruct, GcStr, ValueArray},
-    };
+    use crate::interner::InternedStr;
+    use crate::thread::ThreadInternal;
+    use crate::types::VmTag;
+    use crate::value::{DataStruct, GcStr, ValueArray};
 
     impl Serialize for GcStr {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -129,7 +125,7 @@ pub mod gc {
 
     impl<'de, T> DeserializeState<'de, DeSeed> for crate::gc::Move<T>
     where
-        T: crate::gc::Trace + PostDeserialize,
+        T: crate::gc::Trace,
         T: DeserializeState<'de, DeSeed>,
     {
         fn deserialize_state<D>(seed: &mut DeSeed, deserializer: D) -> Result<Self, D::Error>
@@ -142,7 +138,7 @@ pub mod gc {
 
     impl<'de, T> DeserializeState<'de, DeSeed> for GcPtr<T>
     where
-        T: crate::gc::Trace + PostDeserialize + 'static,
+        T: crate::gc::Trace + 'static,
         T: DeserializeState<'de, DeSeed>,
     {
         fn deserialize_state<D>(seed: &mut DeSeed, deserializer: D) -> Result<Self, D::Error>
@@ -652,51 +648,12 @@ where
     )
 }
 
-pub trait PostDeserialize {
-    fn init(parent: &Thread, ptr: OwnedPtr<Self>) -> GcPtr<Self>;
-}
-
-impl PostDeserialize for PartialApplicationData {
-    fn init(_parent: &Thread, ptr: OwnedPtr<Self>) -> GcPtr<Self> {
-        ptr.into()
-    }
-}
-
-impl PostDeserialize for ValueArray {
-    fn init(_parent: &Thread, ptr: OwnedPtr<Self>) -> GcPtr<Self> {
-        ptr.into()
-    }
-}
-
-impl PostDeserialize for ExternFunction {
-    fn init(_parent: &Thread, ptr: OwnedPtr<Self>) -> GcPtr<Self> {
-        ptr.into()
-    }
-}
-
-impl PostDeserialize for BytecodeFunction {
-    fn init(_parent: &Thread, ptr: OwnedPtr<Self>) -> GcPtr<Self> {
-        ptr.into()
-    }
-}
-
-impl PostDeserialize for Thread {
-    fn init(parent: &Thread, mut ptr: OwnedPtr<Self>) -> GcPtr<Self> {
-        let mut parent_threads = parent.child_threads.write().unwrap();
-        let entry = parent_threads.vacant_entry();
-        ptr.thread_index = entry.key();
-        let ptr = ptr.into();
-        entry.insert((ptr, 0));
-        ptr
-    }
-}
-
 struct DataDefSeed<T>(PhantomData<T>);
 
 impl<'de, T> DeserializeSeed<'de> for crate::serialization::Seed<DataDefSeed<T>>
 where
     T: DataDef + 'static,
-    <T as DataDef>::Value: Sized + PostDeserialize,
+    <T as DataDef>::Value: Sized,
     T: DeserializeState<'de, DeSeed>,
 {
     type Value = GcPtr<<T as DataDef>::Value>;
@@ -720,7 +677,7 @@ where
         impl<'de, T> DeserializeState<'de, GcSeed<T>> for GcPtr<T::Value>
         where
             T: DataDef + 'static,
-            <T as DataDef>::Value: PostDeserialize + Sized,
+            <T as DataDef>::Value: Sized,
             T: DeserializeState<'de, DeSeed>,
         {
             fn deserialize_state<D>(seed: &mut GcSeed<T>, deserializer: D) -> Result<Self, D::Error>
@@ -728,14 +685,12 @@ where
                 D: Deserializer<'de>,
             {
                 let def = T::deserialize_state(&mut seed.state, deserializer)?;
-                let ptr = seed
-                    .state
+                seed.state
                     .thread
                     .context()
                     .gc
-                    .alloc_owned(def)
-                    .map_err(D::Error::custom)?;
-                Ok(T::Value::init(&seed.state.thread, ptr))
+                    .alloc(def)
+                    .map_err(D::Error::custom)
             }
         }
 
@@ -830,24 +785,6 @@ impl<'a> crate::serde::ser::SerializeState<crate::serialization::SeSeed> for Var
         S: crate::serde::ser::Serializer,
     {
         self.0.serialize_state(serializer, seed)
-    }
-}
-
-impl<'de> DeserializeState<'de, DeSeed> for RootedValue<RootedThread> {
-    fn deserialize_state<D>(seed: &mut DeSeed, deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        eprintln!("before value ");
-        let value = Value::deserialize_state(seed, deserializer)?;
-        // TODO Prevent Value from being deserialized directly so we don't need to have this unsafe
-        eprintln!("after value ");
-        unsafe {
-            let x = Ok(seed.thread.root_value(Variants::new(&value)));
-
-            eprintln!("after value 2");
-            x
-        }
     }
 }
 

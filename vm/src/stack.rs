@@ -965,8 +965,6 @@ mod tests {
         }
         // Panic as it attempts to access past the lock
         StackFrame::frame(&mut stack, 1, State::Unknown);
-
-        unsafe { gc.clear() }
     }
 
     #[test]
@@ -986,8 +984,6 @@ mod tests {
         }
         // Panic as it attempts to pop a locked value
         stack.pop();
-
-        unsafe { gc.clear() }
     }
 
     #[test]
@@ -1014,8 +1010,6 @@ mod tests {
         stack.release_lock(lock);
         let mut frame = StackFrame::<State>::current(&mut stack);
         assert_eq!(frame.pop(), Value::from(Int(2)));
-
-        unsafe { gc.clear() }
     }
 
     #[test]

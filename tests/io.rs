@@ -1,14 +1,12 @@
+extern crate env_logger;
+extern crate gluon;
+extern crate tempfile;
+extern crate tokio;
+
+use gluon::vm::api::{Hole, OpaqueValue, OwnedFunction, ValueRef, IO};
+use gluon::{new_vm, Compiler, Thread};
 use std::fs;
-
 use tempfile::NamedTempFile;
-
-use gluon::{
-    new_vm,
-    vm::api::{Hole, OpaqueValue, OwnedFunction, ValueRef, IO},
-    Compiler, Thread,
-};
-
-use tokio::runtime::current_thread::Runtime;
 
 #[macro_use]
 mod support;
@@ -166,7 +164,7 @@ fn spawn_on_twice() {
         action
     "#;
 
-    let mut runtime = Runtime::new().unwrap();
+    let mut runtime = self::tokio::runtime::Runtime::new().unwrap();
     let vm = make_vm();
     let (result, _) = runtime
         .block_on(
@@ -212,7 +210,7 @@ fn spawn_on_runexpr() {
         wrap x.value
     "#;
 
-    let mut runtime = Runtime::new().unwrap();
+    let mut runtime = self::tokio::runtime::Runtime::new().unwrap();
     let vm = make_vm();
     let (result, _) = runtime
         .block_on(
@@ -251,7 +249,7 @@ fn spawn_on_do_action_twice() {
         wrap (load counter)
     "#;
 
-    let mut runtime = Runtime::new().unwrap();
+    let mut runtime = self::tokio::runtime::Runtime::new().unwrap();
     let vm = make_vm();
     let (result, _) = runtime
         .block_on(
@@ -284,7 +282,7 @@ fn spawn_on_force_action_twice() {
         wrap (load counter)
     "#;
 
-    let mut runtime = Runtime::new().unwrap();
+    let mut runtime = self::tokio::runtime::Runtime::new().unwrap();
     let vm = make_vm();
     let (result, _) = runtime
         .block_on(
@@ -316,7 +314,7 @@ fn spawn_on_runexpr_in_catch() {
         (io.catch action wrap >>= io.println) *> wrap "123"
     "#;
 
-    let mut runtime = Runtime::new().unwrap();
+    let mut runtime = self::tokio::runtime::Runtime::new().unwrap();
     let vm = make_vm();
     let (result, _) = runtime
         .block_on(

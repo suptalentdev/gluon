@@ -7,22 +7,18 @@ extern crate walkdir;
 
 extern crate gluon;
 
-use std::{fs::File, io::Read};
+use std::fs::File;
+use std::io::Read;
 
 use futures::Future;
 
 use crate::serde::ser::SerializeState;
 
-use gluon::{
-    new_vm,
-    vm::{
-        api::{Hole, OpaqueValue, IO},
-        serialization::{DeSeed, SeSeed},
-        thread::{RootedThread, RootedValue, Thread},
-        Variants,
-    },
-    Compiler,
-};
+use gluon::vm::api::{Hole, OpaqueValue};
+use gluon::vm::serialization::{DeSeed, SeSeed};
+use gluon::vm::thread::{RootedThread, RootedValue, Thread, ThreadInternal};
+use gluon::vm::Variants;
+use gluon::{new_vm, Compiler};
 
 fn serialize_value(value: Variants) {
     let mut buffer = Vec::new();
@@ -34,10 +30,10 @@ fn serialize_value(value: Variants) {
     String::from_utf8(buffer).unwrap();
 }
 
-fn roundtrip(
-    thread: &RootedThread,
+fn roundtrip<'t>(
+    thread: &'t RootedThread,
     value: &OpaqueValue<&Thread, Hole>,
-) -> RootedValue<RootedThread> {
+) -> RootedValue<&'t Thread> {
     use std::str::from_utf8;
 
     let value = value.get_variant();
@@ -55,6 +51,7 @@ fn roundtrip(
     let deserialize_value = DeSeed::new(thread)
         .deserialize(&mut de)
         .unwrap_or_else(|err| panic!("{}\n{}", err, buffer));
+    let deserialize_value = thread.root_value(unsafe { Variants::new(&deserialize_value) });
 
     // We can't compare functions for equality so serialize again and check that for equality with
     // the first serialization
@@ -64,7 +61,6 @@ fn roundtrip(
         let ser_state = SeSeed::new();
         value.serialize_state(&mut ser, &ser_state).unwrap();
     }
-    eprintln!("{}", buffer);
     assert_eq!(buffer, from_utf8(&buffer2).unwrap());
 
     deserialize_value
@@ -203,23 +199,11 @@ fn roundtrip_lazy() {
 }
 
 #[test]
-fn roundtrip_std_thread() {
+fn roundtrip_thread() {
     let thread = new_vm();
     let expr = r#" import! std.thread "#;
     let (value, _) = Compiler::new()
         .run_expr::<OpaqueValue<&Thread, Hole>>(&thread, "test", &expr)
         .unwrap_or_else(|err| panic!("{}", err));
     roundtrip(&thread, &value);
-}
-
-#[test]
-#[ignore] // Unimplemented so far
-fn roundtrip_thread() {
-    let thread = new_vm();
-    let expr = r#" let t = import! std.thread in t.new_thread ()"#;
-    let (value, _) = Compiler::new()
-        .run_io(true)
-        .run_expr::<IO<OpaqueValue<&Thread, Hole>>>(&thread, "test", &expr)
-        .unwrap_or_else(|err| panic!("{}", err));
-    roundtrip(&thread, &Into::<Result<_, _>>::into(value).unwrap());
 }
