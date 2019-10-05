@@ -634,9 +634,7 @@ pub fn run(
 ) -> impl Future<Item = (), Error = gluon::Error> {
     let vm = ::gluon::VmBuilder::new().build();
     vm.global_env().set_debug_level(debug_level);
-    vm.get_database_mut()
-        .use_standard_lib(use_std_lib)
-        .run_io(true);
+    vm.get_database_mut().use_standard_lib(use_std_lib);
 
     try_future!(
         compile_repl(&vm).map_err(|err| err.emit_string(&vm.get_database().code_map()).unwrap()),
