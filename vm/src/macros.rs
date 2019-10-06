@@ -9,7 +9,7 @@ use std::{
 use {
     codespan_reporting::Diagnostic,
     downcast_rs::{impl_downcast, Downcast},
-    futures::Future,
+    futures::{stream, Future, Stream},
 };
 
 use crate::base::{
@@ -325,31 +325,39 @@ impl<'a> MacroExpander<'a> {
 
     pub fn run(&mut self, symbols: &mut Symbols, expr: &mut SpannedExpr<Symbol>) {
         {
-            let mut visitor = MacroVisitor {
-                expander: self,
-                symbols,
-                exprs: Vec::new(),
+            let exprs = {
+                let mut visitor = MacroVisitor {
+                    expander: self,
+                    symbols,
+                    exprs: Vec::new(),
+                };
+                visitor.visit_expr(expr);
+                visitor.exprs
             };
-            let visitor = &mut visitor;
-            visitor.visit_expr(expr);
-
-            while !visitor.exprs.is_empty() {
-                for (expr, future) in mem::replace(&mut visitor.exprs, Vec::new()) {
-                    match future.wait() {
+            let _ = stream::futures_ordered(exprs.into_iter().map(move |(expr, future)| {
+                future.then(move |result| -> Result<_, ()> {
+                    match result {
                         Ok(mut replacement) => {
                             replacement.span = expr.span;
                             replace_expr(expr, replacement);
-                            visitor.visit_expr(expr);
+                            Ok(None)
                         }
                         Err(err) => {
                             let expr_span = expr.span;
                             replace_expr(expr, pos::spanned(expr_span, Expr::Error(None)));
 
-                            visitor.expander.errors.push(pos::spanned(expr.span, err));
+                            Ok(Some(pos::spanned(expr.span, err)))
                         }
                     }
+                })
+            }))
+            .for_each(|err| -> Result<(), ()> {
+                if let Some(err) = err {
+                    self.errors.push(err);
                 }
-            }
+                Ok(())
+            })
+            .wait();
         }
         if self.errors.has_errors() {
             info!("Macro errors: {}", self.errors);
