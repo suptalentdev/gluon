@@ -32,9 +32,7 @@ use {
     },
 };
 
-use crate::{compiler_pipeline::*, Error, Result, Settings, ThreadExt};
-
-pub use {crate::import::DatabaseSnapshot, salsa};
+use crate::{compiler_pipeline::*, import::DatabaseSnapshot, Error, Result, Settings, ThreadExt};
 
 #[derive(Debug, Trace)]
 #[gluon(crate_name = "gluon_vm")]
@@ -262,10 +260,7 @@ pub trait Compilation: CompilationBase {
         &self,
         module: String,
         expected_type: Option<ArcType>,
-    ) -> StdResult<
-        TypecheckValue<Arc<SpannedExpr<Symbol>>>,
-        (Option<TypecheckValue<Arc<SpannedExpr<Symbol>>>>, Error),
-    >;
+    ) -> StdResult<TypecheckValue<Arc<SpannedExpr<Symbol>>>, Error>;
 
     #[salsa::cycle(recover_cycle)]
     fn core_expr(&self, module: String) -> StdResult<interpreter::Global<CoreExpr>, Error>;
@@ -294,8 +289,8 @@ fn recover_cycle_typecheck<T>(
     cycle: &[String],
     module: &String,
     _: &Option<ArcType>,
-) -> StdResult<T, (Option<T>, Error)> {
-    recover_cycle(db, cycle, module).map_err(|err| (None, err))
+) -> StdResult<T, Error> {
+    recover_cycle(db, cycle, module)
 }
 fn recover_cycle<T>(
     _db: &impl Compilation,
@@ -330,7 +325,7 @@ fn module_text(db: &impl Compilation, module: String) -> StdResult<Arc<Cow<'stat
 
         Arc::new(
             crate::get_import(db.thread())
-                .get_module_source(db.compiler_settings().use_standard_lib, &module, &filename)
+                .get_module_source(db, &module, &filename)
                 .map_err(macros::Error::new)?,
         )
     };
@@ -342,13 +337,10 @@ fn typechecked_module(
     db: &impl Compilation,
     module: String,
     expected_type: Option<ArcType>,
-) -> StdResult<
-    TypecheckValue<Arc<SpannedExpr<Symbol>>>,
-    (Option<TypecheckValue<Arc<SpannedExpr<Symbol>>>>, Error),
-> {
+) -> StdResult<TypecheckValue<Arc<SpannedExpr<Symbol>>>, Error> {
     db.salsa_runtime().report_untracked_read();
 
-    let text = db.module_text(module.clone()).map_err(|err| (None, err))?;
+    let text = db.module_text(module.clone())?;
 
     let thread = db.thread();
     let mut compiler = thread.module_compiler(db.compiler());
@@ -360,7 +352,7 @@ fn typechecked_module(
             &text,
             expected_type.as_ref(),
         )
-        .map_err(|(opt, err)| (opt.map(|value| value.map(Arc::new)), err))?;
+        .map_err(|(_, err)| err)?;
 
     Ok(value.map(Arc::new))
 }
@@ -371,9 +363,7 @@ fn core_expr(
 ) -> StdResult<interpreter::Global<CoreExpr>, Error> {
     db.salsa_runtime().report_untracked_read();
 
-    let value = db
-        .typechecked_module(module.clone(), None)
-        .map_err(|(_, err)| err)?;
+    let value = db.typechecked_module(module.clone(), None)?;
     let settings = db.compiler_settings();
 
     let env = db.compiler();
@@ -460,9 +450,7 @@ fn import(db: &impl Compilation, modulename: String) -> StdResult<Expr<Symbol>, 
 fn global_(db: &impl Compilation, name: String) -> Result<UnrootedGlobal> {
     let vm = db.thread();
 
-    let TypecheckValue { metadata, typ, .. } = db
-        .typechecked_module(name.clone(), None)
-        .map_err(|(_, err)| err)?;
+    let TypecheckValue { metadata, typ, .. } = db.typechecked_module(name.clone(), None)?;
     let closure = db.compiled_module(name.clone())?;
 
     let module_id = closure.function.name.clone();

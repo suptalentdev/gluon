@@ -297,7 +297,7 @@ fn run_expr(
     let vm = vm.root_thread();
 
     let vm1 = vm.clone();
-    let db = vm.get_database();
+    let db = crate::get_db_snapshot(&vm);
     expr.run_expr(&mut vm.module_compiler(&db), vm1, "<top>", expr, None)
         .then(move |run_result| {
             let mut context = vm.context();
@@ -325,7 +325,7 @@ fn load_script(
     let vm = vm.root_thread();
     let name = name.to_string();
 
-    let db = vm.get_database();
+    let db = crate::get_db_snapshot(&vm);
     expr.load_script(&mut vm.module_compiler(&db), vm1, &name, expr, None)
         .then(move |run_result| {
             let mut context = vm.context();

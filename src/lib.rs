@@ -77,7 +77,7 @@ use crate::format::Formatter;
 use crate::vm::{
     api::{Getable, Hole, OpaqueValue, VmType},
     compiler::CompiledModule,
-    macros,
+    macros::{self, Macro},
 };
 
 use crate::{
@@ -309,7 +309,7 @@ impl Default for Settings {
 }
 
 pub struct ModuleCompiler<'a> {
-    pub database: &'a query::CompilerDatabase,
+    database: &'a query::CompilerDatabase,
     symbols: Symbols,
 }
 
@@ -350,7 +350,7 @@ macro_rules! runtime_option {
 };
 }
 
-impl import::DatabaseMut {
+impl import::CompilerLock {
     runtime_option! {
         /// Sets whether the implicit prelude should be include when compiling a file using this
         /// compiler (default: true)
@@ -392,7 +392,7 @@ impl import::DatabaseMut {
 /// Extension trait which provides methods to load and execute gluon code
 pub trait ThreadExt {
     fn get_database(&self) -> import::DatabaseSnapshot;
-    fn get_database_mut(&self) -> import::DatabaseMut;
+    fn get_database_mut(&self) -> import::CompilerLock;
 
     fn run_io(&self, run: bool) {
         self.get_database_mut().run_io(run);
@@ -428,7 +428,7 @@ pub trait ThreadExt {
     ) -> SalvageResult<SpannedExpr<Symbol>, InFile<parser::Error>> {
         let vm = self.thread();
         parse_expr(
-            &mut self.module_compiler(&vm.get_database()),
+            &mut self.module_compiler(&get_db_snapshot(&vm)),
             type_cache,
             file,
             expr_str,
@@ -445,7 +445,7 @@ pub trait ThreadExt {
     ) -> Result<ArcType> {
         let vm = self.thread();
         expr.typecheck_expected(
-            &mut self.module_compiler(&vm.get_database()),
+            &mut self.module_compiler(&get_db_snapshot(&vm)),
             vm,
             file,
             expr_str,
@@ -466,11 +466,10 @@ pub trait ThreadExt {
             let mut db = vm.get_database_mut();
             db.add_module(file.into(), expr_str.into());
         }
-        let db = vm.get_database();
+        let db = get_db_snapshot(&vm);
 
-        let TypecheckValue { expr, typ, .. } = db
-            .typechecked_module(file.into(), expected_type.cloned())
-            .map_err(|t| t.1)?;
+        let TypecheckValue { expr, typ, .. } =
+            db.typechecked_module(file.into(), expected_type.cloned())?;
         Ok((expr, typ))
     }
 
@@ -489,7 +488,7 @@ pub trait ThreadExt {
             metadata_map: Default::default(),
         }
         .compile(
-            &mut self.module_compiler(&vm.get_database()),
+            &mut self.module_compiler(&get_db_snapshot(&vm)),
             vm,
             filename,
             expr_str,
@@ -513,7 +512,7 @@ pub trait ThreadExt {
         let thread = self.thread();
         compile_to(
             expr_str,
-            &mut self.module_compiler(&thread.get_database()),
+            &mut self.module_compiler(&get_db_snapshot(&thread)),
             &thread,
             name,
             expr_str,
@@ -533,7 +532,7 @@ pub trait ThreadExt {
     {
         let thread = self.thread();
         Box::new(Precompiled(deserializer).load_script(
-            &mut self.module_compiler(&thread.get_database()),
+            &mut self.module_compiler(&get_db_snapshot(&thread)),
             thread,
             name,
             "",
@@ -573,7 +572,7 @@ pub trait ThreadExt {
             let mut db = vm.get_database_mut();
             db.add_module(module_name.clone(), input.into());
         }
-        let db = vm.get_database();
+        let db = get_db_snapshot(&vm);
         Box::new(future::result(db.global(module_name).map(|_| ())))
     }
 
@@ -630,7 +629,7 @@ pub trait ThreadExt {
         let expected = T::make_type(vm);
         expr_str
             .run_expr(
-                &mut self.module_compiler(&vm.get_database()),
+                &mut self.module_compiler(&get_db_snapshot(&vm)),
                 vm,
                 name,
                 expr_str,
@@ -681,7 +680,7 @@ pub trait ThreadExt {
         Box::new(
             expr_str
                 .run_expr(
-                    &mut self.module_compiler(&vm.get_database()),
+                    &mut self.module_compiler(&get_db_snapshot(&vm)),
                     vm.clone(),
                     name,
                     expr_str,
@@ -708,7 +707,7 @@ pub trait ThreadExt {
         }
 
         let thread = self.thread();
-        let db = thread.get_database();
+        let db = get_db_snapshot(thread);
         let mut compiler = self.module_compiler(&db);
         let compiler = &mut compiler;
 
@@ -742,24 +741,26 @@ fn skip_implicit_prelude(span: Span<BytePos>, mut l: &SpannedExpr<Symbol>) -> &S
 
 impl ThreadExt for Thread {
     fn get_database(&self) -> import::DatabaseSnapshot {
-        self.global_env()
-            .get_capability(self)
-            .expect("Database is missing")
+        get_db_snapshot(self)
     }
-    fn get_database_mut(&self) -> import::DatabaseMut {
-        self.global_env()
-            .get_capability(self)
-            .expect("Database is missing")
+    fn get_database_mut(&self) -> import::CompilerLock {
+        Import::compiler_lock(get_import(self), self.root_thread())
     }
     fn thread(&self) -> &Thread {
         self
     }
 }
 
-fn get_import(vm: &Thread) -> Arc<dyn import::ImportApi> {
-    vm.get_macros()
-        .get_capability::<Arc<dyn import::ImportApi>>(vm)
-        .unwrap_or_else(|| panic!("Missing import macro"))
+fn get_db_snapshot(vm: &Thread) -> import::DatabaseSnapshot {
+    get_import(vm).snapshot(vm.root_thread())
+}
+
+fn get_import(vm: &Thread) -> Arc<Import> {
+    let opt_macro = vm.get_macros().get("import");
+    match opt_macro.and_then(|mac| Macro::downcast_arc::<Import>(mac).ok()) {
+        Some(import) => import,
+        None => Arc::new(Import::new(DefaultImporter)),
+    }
 }
 
 impl<'a> ModuleCompiler<'a> {
