@@ -27,8 +27,7 @@ fn gen_impl(ident: Ident, generics: Generics, data: &Data) -> TokenStream {
     let map_methods = generics
         .type_params()
         .last()
-        .map(|gen| gen_map(&ident, &generics, &gen.ident, data))
-        .into_iter();
+        .map(|gen| gen_map(&ident, &generics, &gen.ident, data));
 
     quote! {
         impl #impl_generics #ident #ty_generics
@@ -114,7 +113,7 @@ enum Parameter {
 fn detect_parameter(typ: &syn::Type, param: &syn::Ident) -> Option<Parameter> {
     match typ {
         syn::Type::Path(ref p) => {
-            if p.qself.is_none() && p.path.is_ident(param) {
+            if p.qself.is_none() && p.path.is_ident(param.clone()) {
                 Some(Parameter::Direct)
             } else {
                 p.path.segments.iter().find_map(|segment| {
@@ -123,7 +122,7 @@ fn detect_parameter(typ: &syn::Type, param: &syn::Ident) -> Option<Parameter> {
                     if segment.ident == "Vec" {
                         is_vec = true;
                     }
-                    if segment.ident == "List" || segment.ident == "ListSync" {
+                    if segment.ident == "List" {
                         is_list = true;
                     }
                     match &segment.arguments {
