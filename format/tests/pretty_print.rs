@@ -112,7 +112,6 @@ fn string() {
     test_format("std/string.glu");
 }
 
-#[ignore]
 #[test]
 fn test() {
     test_format("std/test.glu");

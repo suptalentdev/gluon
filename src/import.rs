@@ -115,14 +115,14 @@ impl Deref for DatabaseSnapshot {
     }
 }
 
-pub struct DatabaseMut {
+pub struct CompilerLock<I = DefaultImporter> {
     // Only needed to ensure that the the `Compiler` the guard points to lives long enough
-    _import: Arc<dyn Macro>,
+    _import: Arc<Import<I>>,
     // This isn't actually static but relies on `import` to live longer than the guard
     compiler: Option<MutexGuard<'static, CompilerDatabase>>,
 }
 
-impl Drop for DatabaseMut {
+impl<I> Drop for CompilerLock<I> {
     fn drop(&mut self) {
         // The compiler moves back to only be owned by the import so we need to remove the thread
         // to break the cycle
@@ -131,57 +131,16 @@ impl Drop for DatabaseMut {
     }
 }
 
-impl Deref for DatabaseMut {
+impl<I> Deref for CompilerLock<I> {
     type Target = CompilerDatabase;
     fn deref(&self) -> &Self::Target {
         self.compiler.as_ref().unwrap()
     }
 }
 
-impl DerefMut for DatabaseMut {
+impl<I> DerefMut for CompilerLock<I> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.compiler.as_mut().unwrap()
-    }
-}
-
-pub(crate) trait ImportApi {
-    fn get_module_source(
-        &self,
-        use_standard_lib: bool,
-        module: &str,
-        filename: &str,
-    ) -> Result<Cow<'static, str>, Error>;
-    fn load_module(
-        &self,
-        compiler: &mut ModuleCompiler,
-        vm: &Thread,
-        module_id: &Symbol,
-    ) -> Result<ArcType, (Option<ArcType>, MacroError)>;
-    fn snapshot(&self, thread: RootedThread) -> DatabaseSnapshot;
-}
-
-impl<I> ImportApi for Import<I>
-where
-    I: Importer,
-{
-    fn get_module_source(
-        &self,
-        use_standard_lib: bool,
-        module: &str,
-        filename: &str,
-    ) -> Result<Cow<'static, str>, Error> {
-        Self::get_module_source(self, use_standard_lib, module, filename)
-    }
-    fn load_module(
-        &self,
-        compiler: &mut ModuleCompiler,
-        vm: &Thread,
-        module_id: &Symbol,
-    ) -> Result<ArcType, (Option<ArcType>, MacroError)> {
-        Self::load_module(self, compiler, vm, module_id)
-    }
-    fn snapshot(&self, thread: RootedThread) -> DatabaseSnapshot {
-        Self::snapshot(self, thread)
     }
 }
 
@@ -230,18 +189,15 @@ impl<I> Import<I> {
             .collect()
     }
 
-    pub fn database_mut(self: Arc<Self>, thread: RootedThread) -> DatabaseMut
-    where
-        I: Importer,
-    {
+    pub fn compiler_lock(self_: Arc<Self>, thread: RootedThread) -> CompilerLock<I> {
         // Since `self` lives longer than the lifetime in the mutex guard this is safe
         let mut compiler = unsafe {
-            DatabaseMut {
+            CompilerLock {
                 compiler: Some(mem::transmute::<
                     MutexGuard<CompilerDatabase>,
                     MutexGuard<CompilerDatabase>,
-                >(self.compiler.lock().unwrap())),
-                _import: self,
+                >(self_.compiler.lock().unwrap())),
+                _import: self_,
             }
         };
 
@@ -279,7 +235,7 @@ impl<I> Import<I> {
 
     pub(crate) fn get_module_source(
         &self,
-        use_standard_lib: bool,
+        db: &impl Compilation,
         module: &str,
         filename: &str,
     ) -> Result<Cow<'static, str>, Error> {
@@ -288,7 +244,7 @@ impl<I> Import<I> {
         // Retrieve the source, first looking in the standard library included in the
         // binary
 
-        let std_file = if use_standard_lib {
+        let std_file = if db.compiler_settings().use_standard_lib {
             STD_LIBS.iter().find(|tup| tup.0 == module)
         } else {
             None
@@ -453,30 +409,10 @@ impl<I> Macro for Import<I>
 where
     I: Importer,
 {
-    fn get_capability_impl(
-        &self,
-        thread: &Thread,
-        arc_self: &Arc<dyn Macro>,
-        id: TypeId,
-    ) -> Option<Box<dyn Any>> {
-        if id == TypeId::of::<Box<dyn VmEnv>>() {
+    fn get_capability_impl(&self, thread: &Thread, id: TypeId) -> Option<Box<dyn Any>> {
+        if id == TypeId::of::<dyn VmEnv>() {
             Some(Box::new(
                 Box::new(self.snapshot(thread.root_thread())) as Box<dyn VmEnv>
-            ))
-        } else if id == TypeId::of::<Arc<dyn ImportApi>>() {
-            Some(Box::new(
-                arc_self.clone().downcast_arc::<Self>().ok().unwrap() as Arc<dyn ImportApi>,
-            ))
-        } else if id == TypeId::of::<DatabaseSnapshot>() {
-            Some(Box::new(self.snapshot(thread.root_thread())))
-        } else if id == TypeId::of::<DatabaseMut>() {
-            Some(Box::new(
-                arc_self
-                    .clone()
-                    .downcast_arc::<Self>()
-                    .ok()
-                    .unwrap()
-                    .database_mut(thread.root_thread()),
             ))
         } else {
             None
