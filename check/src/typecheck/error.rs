@@ -30,10 +30,7 @@ pub enum TypeError<I, T> {
     /// Type were expected to have a certain field
     UndefinedField(T, I),
     /// Constructor type was found in a pattern but did not have the expected number of arguments
-    PatternError {
-        constructor_type: T,
-        pattern_args: usize,
-    },
+    PatternError(T, usize),
     /// Errors found when trying to unify two types
     Unification(T, T, Vec<UnifyTypeError<I, T>>),
     /// Error were found when trying to unify the kinds of two types
@@ -179,14 +176,8 @@ where
                 }
                 write!(f, "{}", errors.last().unwrap())
             }
-            PatternError { constructor_type, pattern_args } => {
-                write!(
-                    f,
-                    "Matching on constructor `{}` requires `{}` arguments but the pattern specifies `{}`",
-                    constructor_type,
-                    constructor_type.arg_iter().count(),
-                    pattern_args
-                )
+            PatternError(typ, expected_len) => {
+                write!(f, "Type {} has {} to few arguments", typ, expected_len)
             }
             KindError(err) => kindcheck::fmt_kind_error(err, f),
             RecursionCheck(err) => write!(f, "{}", err),
