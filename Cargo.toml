@@ -115,6 +115,10 @@ name = "function_call"
 harness = false
 
 [[bench]]
+name = "parser"
+harness = false
+
+[[bench]]
 name = "precompiled"
 harness = false
 
