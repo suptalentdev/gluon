@@ -269,12 +269,6 @@ pub enum IO<T> {
     Exception(String),
 }
 
-impl<T> IO<T> {
-    pub fn into_result(self) -> StdResult<T, String> {
-        self.into()
-    }
-}
-
 impl<T> Into<StdResult<T, String>> for IO<T> {
     fn into(self) -> StdResult<T, String> {
         match self {
@@ -1267,7 +1261,19 @@ where
     V::Type: Sized,
 {
     fn push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
-        to_gluon_map(self, context)
+        let thread = context.thread();
+        type Map<V2> = OpaqueValue<RootedThread, BTreeMap<String, V2>>;
+        let mut map: Map<V> = thread.get_global("std.map.empty")?;
+        let mut insert: OwnedFunction<fn(String, V, Map<V>) -> Map<V>> =
+            thread.get_global("std.json.de.insert_string")?;
+
+        context.drop();
+        for (key, value) in self {
+            map = insert.call(key.borrow().to_string(), value, map)?;
+        }
+        context.restore();
+
+        map.push(context)
     }
 }
 
@@ -1279,58 +1285,35 @@ where
     impl_getable_simple!();
 
     fn from_value(vm: &'vm Thread, value: Variants<'value>) -> Self {
-        let mut map = BTreeMap::new();
-        from_gluon_map(&mut map, vm, value);
-        map
-    }
-}
+        fn build_map<'vm2, 'value2, K2, V2>(
+            map: &mut BTreeMap<K2, V2>,
+            vm: &'vm2 Thread,
+            value: Variants<'value2>,
+        ) where
+            K2: Getable<'vm2, 'value2> + Ord,
+            V2: Getable<'vm2, 'value2>,
+        {
+            match value.as_ref() {
+                ValueRef::Data(data) => {
+                    if data.tag() == 1 {
+                        let key = K2::from_value(vm, data.get_variant(0).expect("key"));
+                        let value = V2::from_value(vm, data.get_variant(1).expect("value"));
+                        map.insert(key, value);
 
-fn to_gluon_map<'vm, K, V>(
-    map_iter: impl IntoIterator<Item = (K, V)>,
-    context: &mut ActiveThread<'vm>,
-) -> Result<()>
-where
-    K: Borrow<str> + VmType,
-    K::Type: Sized,
-    V: for<'vm2> Pushable<'vm2> + VmType,
-    V::Type: Sized,
-{
-    let thread = context.thread();
-    type Map<V2> = OpaqueValue<RootedThread, BTreeMap<String, V2>>;
-    let mut map: Map<V> = thread.get_global("std.map.empty")?;
-    let mut insert: OwnedFunction<fn(String, V, Map<V>) -> Map<V>> =
-        thread.get_global("std.json.de.insert_string")?;
+                        let left = data.get_variant(2).expect("left");
+                        build_map(map, vm, left);
 
-    context.drop();
-    for (key, value) in map_iter {
-        map = insert.call(key.borrow().to_string(), value, map)?;
-    }
-    context.restore();
-
-    map.push(context)
-}
-
-fn from_gluon_map<'vm2, 'value2, M, K2, V2>(map: &mut M, vm: &'vm2 Thread, value: Variants<'value2>)
-where
-    M: Extend<(K2, V2)>,
-    K2: Getable<'vm2, 'value2> + Ord,
-    V2: Getable<'vm2, 'value2>,
-{
-    match value.as_ref() {
-        ValueRef::Data(data) => {
-            if data.tag() == 1 {
-                let key = K2::from_value(vm, data.get_variant(0).expect("key"));
-                let value = V2::from_value(vm, data.get_variant(1).expect("value"));
-                map.extend(Some((key, value)));
-
-                let left = data.get_variant(2).expect("left");
-                from_gluon_map(map, vm, left);
-
-                let right = data.get_variant(3).expect("right");
-                from_gluon_map(map, vm, right);
+                        let right = data.get_variant(3).expect("right");
+                        build_map(map, vm, right);
+                    }
+                }
+                _ => ice!("ValueRef is not a Map"),
             }
         }
-        _ => ice!("ValueRef is not a Map"),
+
+        let mut map = BTreeMap::new();
+        build_map(&mut map, vm, value);
+        map
     }
 }
 
