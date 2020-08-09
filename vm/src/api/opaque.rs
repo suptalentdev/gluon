@@ -361,7 +361,9 @@ where
         V::make_type(vm)
     }
 
-    const EXTRA_ARGS: VmIndex = V::EXTRA_ARGS;
+    fn extra_args() -> VmIndex {
+        V::extra_args()
+    }
 }
 
 impl<'s, 'value, 'vm, T, V> Pushable<'vm> for Opaque<T, V>

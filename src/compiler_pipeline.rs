@@ -16,6 +16,7 @@ use std::{
 
 #[cfg(feature = "serde")]
 use either::Either;
+use salsa::ParallelDatabase;
 
 #[cfg(feature = "serde")]
 use crate::ThreadExt;
@@ -31,7 +32,7 @@ use crate::{
         types::{ArcType, NullInterner, Type, TypeCache},
     },
     check::{metadata, rename},
-    query::{env, AsyncCompilation, Compilation},
+    query::{env, Compilation, CompilerDatabase},
     vm::{
         compiler::CompiledModule,
         core::{self, interpreter, CoreExpr},
@@ -144,7 +145,7 @@ macro_rules! join_result {
 
 pub fn parse_expr_inner<'ast>(
     arena: ast::ArenaRef<'_, 'ast, Symbol>,
-    compiler: &mut ModuleCompiler<'_, '_>,
+    compiler: &mut ModuleCompiler<'_>,
     type_cache: &TypeCache<Symbol, ArcType>,
     file: &str,
     expr_str: &str,
@@ -166,7 +167,7 @@ pub fn parse_expr_inner<'ast>(
 }
 
 pub fn parse_expr(
-    compiler: &mut ModuleCompiler<'_, '_>,
+    compiler: &mut ModuleCompiler<'_>,
     type_cache: &TypeCache<Symbol, ArcType>,
     file: &str,
     expr_str: &str,
@@ -195,7 +196,7 @@ pub trait MacroExpandable {
 
     async fn expand_macro(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -208,7 +209,7 @@ impl<'s> MacroExpandable for &'s str {
 
     async fn expand_macro(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -227,7 +228,7 @@ impl<'s> MacroExpandable for &'s mut OwnedExpr<Symbol> {
 
     async fn expand_macro(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -245,15 +246,17 @@ impl<'s> MacroExpandable for &'s mut OwnedExpr<Symbol> {
         }
 
         let result = {
-            struct Forker<'a, 'b, 'c>(
-                salsa::Forker<&'b mut salsa::OwnedDb<'a, dyn Compilation + 'c>>,
-            );
-            impl vm::macros::MacroUserdata for Forker<'_, '_, '_> {
+            struct Forker<'a>(salsa::Forker<'a, CompilerDatabase>);
+            impl vm::macros::MacroUserdata for Forker<'_> {
                 fn fork(&self, thread: RootedThread) -> Box<dyn std::any::Any> {
-                    Box::new(self.0.db.compiler().fork(self.0.state.clone(), thread))
+                    Box::new(CompilerDatabase::fork(
+                        self.0.db,
+                        self.0.state.clone(),
+                        thread,
+                    ))
                 }
             }
-            let mut forker = Forker(salsa::forker(&mut compiler.database));
+            let mut forker = Forker(compiler.database.forker());
 
             let spawner = thread.spawner();
 
@@ -280,7 +283,7 @@ impl MacroExpandable for OwnedExpr<Symbol> {
 
     async fn expand_macro(
         mut self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -312,7 +315,7 @@ pub trait Renameable: Sized {
 
     async fn rename(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -329,7 +332,7 @@ where
 
     async fn rename(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -350,7 +353,7 @@ where
 
     async fn rename(
         mut self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         _thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -377,7 +380,7 @@ pub trait MetadataExtractable: Sized {
 
     async fn extract_metadata(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -394,7 +397,7 @@ where
 
     async fn extract_metadata(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -417,12 +420,12 @@ where
 
     async fn extract_metadata(
         mut self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         _thread: &Thread,
         _file: &str,
         _expr_str: &str,
     ) -> SalvageResult<WithMetadata<Self::Expr>> {
-        let env = env(&*compiler.database);
+        let env = env(compiler.database);
         let (metadata, metadata_map) = metadata::metadata(&env, self.expr.borrow_mut().expr_mut());
         Ok(WithMetadata {
             expr: self.expr,
@@ -445,7 +448,7 @@ pub trait InfixReparseable: Sized {
 
     async fn reparse_infix(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -462,7 +465,7 @@ where
 
     async fn reparse_infix(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -484,7 +487,7 @@ where
 
     async fn reparse_infix(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         _thread: &Thread,
         _file: &str,
         _expr_str: &str,
@@ -548,7 +551,7 @@ pub trait Typecheckable: Sized {
 
     async fn typecheck(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -558,7 +561,7 @@ pub trait Typecheckable: Sized {
     }
     async fn typecheck_expected(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -576,7 +579,7 @@ where
 
     async fn typecheck_expected(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -593,14 +596,14 @@ where
 
 fn typecheck_expr(
     expr: &mut OwnedExpr<Symbol>,
-    compiler: &mut ModuleCompiler<'_, '_>,
+    compiler: &mut ModuleCompiler<'_>,
     thread: &Thread,
     file: &str,
     expected_type: Option<&ArcType>,
     metadata_map: &mut FnvMap<Symbol, Arc<Metadata>>,
 ) -> Result<ArcType> {
     use crate::check::typecheck::Typecheck;
-    let env = env(&*compiler.database);
+    let env = env(compiler.database);
     let (arena, expr) = expr.arena_expr();
     let mut tc = Typecheck::new(
         file.into(),
@@ -624,7 +627,7 @@ where
 
     async fn typecheck_expected(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         _expr_str: &str,
@@ -653,7 +656,7 @@ where
                         typ: expr
                             .borrow_mut()
                             .expr()
-                            .try_type_of(&env(&*compiler.database))
+                            .try_type_of(&env(compiler.database))
                             .unwrap_or_else(|_| thread.global_env().type_cache().error()),
                         expr,
                         metadata_map,
@@ -666,7 +669,7 @@ where
 
         // Some metadata requires typechecking so recompute it if full metadata is required
         let (metadata, metadata_map) = if compiler.compiler_settings().full_metadata {
-            let env = env(&*compiler.database);
+            let env = env(compiler.database);
             metadata::metadata(&env, expr.borrow_mut().expr_mut())
         } else {
             (metadata, metadata_map)
@@ -716,7 +719,7 @@ pub trait Compileable<Extra> {
 
     async fn compile(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -736,7 +739,7 @@ where
 
     async fn compile(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         file: &str,
         expr_str: &str,
@@ -759,7 +762,7 @@ where
 
     async fn compile(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         filename: &str,
         expr_str: &str,
@@ -800,7 +803,7 @@ where
 
     async fn compile(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         thread: &Thread,
         filename: &str,
         _expr_str: &str,
@@ -819,7 +822,7 @@ where
 
         let mut module = {
             core_expr = {
-                let env = env(&*compiler.database);
+                let env = env(compiler.database);
                 core::with_translator(&env, |translator| {
                     let expr = translator.translate_expr(self.expr.borrow().expr());
 
@@ -849,7 +852,7 @@ where
                 &mut compiler.symbols,
             );
 
-            let env = env(&*compiler.database);
+            let env = env(compiler.database);
             let mut compiler = Compiler::new(
                 &env,
                 thread.global_env(),
@@ -889,7 +892,7 @@ pub trait Executable<'vm, Extra> {
 
     async fn run_expr<T>(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         vm: T,
         name: &str,
         expr_str: &str,
@@ -902,7 +905,7 @@ pub trait Executable<'vm, Extra> {
 
     async fn load_script<T>(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         vm: T,
         filename: &str,
         expr_str: &str,
@@ -925,7 +928,7 @@ where
 
     async fn run_expr<T>(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         vm: T,
         name: &str,
         expr_str: &str,
@@ -944,7 +947,7 @@ where
 
     async fn load_script<T>(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         vm: T,
         filename: &str,
         expr_str: &str,
@@ -971,7 +974,7 @@ where
 
     async fn run_expr<T>(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         vm: T,
         name: &str,
         _expr_str: &str,
@@ -1011,7 +1014,7 @@ where
 
     async fn load_script<T>(
         self,
-        compiler: &mut ModuleCompiler<'_, '_>,
+        compiler: &mut ModuleCompiler<'_>,
         _vm: T,
         filename: &str,
         expr_str: &str,
@@ -1028,9 +1031,7 @@ where
             .inline_modules
             .insert(filename.clone(), Arc::new(Cow::Owned(expr_str.into())));
 
-        compiler.database.import(filename.into()).await?;
-
-        Ok(())
+        compiler.database.import(filename.into()).await.map(|_| ())
     }
 }
 
@@ -1075,7 +1076,7 @@ where
 
     async fn run_expr<T>(
         self,
-        _compiler: &mut ModuleCompiler<'_, '_>,
+        _compiler: &mut ModuleCompiler<'_>,
         vm: T,
         filename: &str,
         _expr_str: &str,
@@ -1112,7 +1113,7 @@ where
 
     async fn load_script<T>(
         self,
-        _compiler: &mut ModuleCompiler<'_, '_>,
+        _compiler: &mut ModuleCompiler<'_>,
         vm: T,
         name: &str,
         _expr_str: &str,
@@ -1142,7 +1143,7 @@ where
 #[cfg(feature = "serde")]
 pub async fn compile_to<S, T, E>(
     self_: T,
-    compiler: &mut ModuleCompiler<'_, '_>,
+    compiler: &mut ModuleCompiler<'_>,
     thread: &Thread,
     file: &str,
     expr_str: &str,
