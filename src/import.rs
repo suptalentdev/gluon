@@ -561,23 +561,11 @@ where
                 .spawn(Box::pin(async move {
                     let result = {
                         let mut db = salsa::OwnedDb::<dyn Compilation>::from(&mut db);
-                        std::panic::AssertUnwindSafe(db.import(modulename))
-                            .catch_unwind()
+                        db.import(modulename)
                             .await
-                            .map(|r| r.map_err(|err| MacroError::message(err.to_string())))
-                            .unwrap_or_else(|err| {
-                                Err(MacroError::message(
-                                    err.downcast::<String>()
-                                        .map(|s| *s)
-                                        .or_else(|e| {
-                                            e.downcast::<&str>().map(|s| String::from(&s[..]))
-                                        })
-                                        .unwrap_or_else(|_| "Unknown panic".to_string()),
-                                ))
-                            })
+                            .map_err(|err| MacroError::message(err.to_string()))
                     };
-                    // Drop the database before sending the result, otherwise the forker may drop before the forked database
-                    drop(db);
+                    drop(db); // Drop the database before sending the result, otherwise the forker may drop before the forked database
                     let _ = tx.send(result);
                 }))
                 .unwrap();
@@ -595,15 +583,11 @@ where
         Box::pin(async move {
             Ok(From::from(move || {
                 async move {
-                    let result = {
-                        let mut db = salsa::OwnedDb::<dyn Compilation>::from(&mut db);
-                        db.import(modulename)
-                            .await
-                            .map_err(|err| MacroError::message(err.to_string()))
-                            .map(move |id| pos::spanned(span, Expr::Ident(id)))
-                    };
-                    drop(db);
-                    result
+                    let mut db = salsa::OwnedDb::<dyn Compilation>::from(&mut db);
+                    db.import(modulename)
+                        .await
+                        .map_err(|err| MacroError::message(err.to_string()))
+                        .map(move |id| pos::spanned(span, Expr::Ident(id)))
                 }
                 .boxed()
             }))

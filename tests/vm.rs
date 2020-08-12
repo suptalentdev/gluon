@@ -729,7 +729,6 @@ in
 g 10
 "#;
     let vm = make_vm();
-    vm.get_database_mut().set_optimize(false);
     let result = vm.run_expr::<i32>("<top>", text);
     match result {
         Err(Error::VM(vm::Error::Panic(_, Some(stacktrace)))) => {
@@ -1095,7 +1094,8 @@ let tell : Eff [| writer : Writer | r |] () =
 
 test_expr! { issue_863,
 r"
-let { (<|) } = import! std.function
+#[infix(right, 0)]
+let (<|) f x : (a -> b) -> a -> b = f x
 
 let g f x = x
 let f a =

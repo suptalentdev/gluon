@@ -75,28 +75,29 @@ impl<K: Eq + Hash + Clone, V> ScopedMap<K, V> {
     }
 
     /// Removes a previously inserted value from the map.
-    pub fn remove<Q>(&mut self, k: &Q) -> Option<V>
+    pub fn remove<Q>(&mut self, k: &Q) -> bool
     where
         K: Borrow<Q>,
-        Q: ?Sized + Eq + Hash,
+        Q: Eq + Hash,
         K: ::std::fmt::Debug,
         V: ::std::fmt::Debug,
     {
-        let x = self.map.get_mut(k).map(|x| x.pop())?;
-        let mut i = self.scopes.len() as isize - 1;
-        while i >= 0 {
-            if self.scopes[i as usize]
-                .as_ref()
-                .expect("Tried to remove entry not in the current scope")
-                .borrow()
-                == k
-            {
-                self.scopes.remove(i as usize);
-                break;
+        match self.map.get_mut(k).map(|x| x.pop()) {
+            Some(..) => {
+                let mut i = self.scopes.len() as isize - 1;
+                while i >= 0 {
+                    if self.scopes[i as usize]
+                        .as_ref()
+                        .map_or(false, |x| x.borrow() == k)
+                    {
+                        self.scopes.remove(i as usize);
+                    }
+                    i -= 1;
+                }
+                true
             }
-            i -= 1;
+            None => false,
         }
-        x
     }
 
     /// Returns true if the key has a value declared in the last declared scope
@@ -228,12 +229,6 @@ impl<K: Eq + Hash + Clone, V> ScopedMap<K, V> {
                 false
             }
         }
-    }
-
-    pub fn into_iter(self) -> impl Iterator<Item = (K, V)> {
-        self.map
-            .into_iter()
-            .filter_map(|(k, mut v)| Some((k, v.pop()?)))
     }
 }
 
@@ -431,21 +426,5 @@ mod tests {
         map.exit_scope();
         assert_eq!(map.get(&"a"), Some(&0));
         assert_eq!(map.get(&"c"), None);
-    }
-
-    #[test]
-    fn remove() {
-        let mut map = ScopedMap::new();
-        map.insert("a", 0);
-        map.enter_scope();
-        map.insert("a", 1);
-        map.insert("b", 2);
-        assert_eq!(map.get("a"), Some(&1));
-        map.remove("a");
-        assert_eq!(map.get("a"), Some(&0));
-        assert_eq!(map.get("b"), Some(&2));
-        map.remove("b");
-        assert_eq!(map.get("b"), None);
-        map.exit_scope();
     }
 }

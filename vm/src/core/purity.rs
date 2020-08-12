@@ -8,17 +8,10 @@ use crate::core::{
     Allocator, CExpr, Expr, Named, Pattern,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum Pureness {
-    None,
-    Load,
     Call,
-}
-
-impl Pureness {
-    fn merge(&mut self, pureness: Pureness) {
-        *self = (*self).min(pureness);
-    }
+    Load,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -38,7 +31,7 @@ pub fn purity<'a>(expr: CExpr<'a>) -> PurityMap {
     let mut pure_symbols = PurityMap(FnvMap::default());
 
     let mut visitor = Pure {
-        is_pure: Pureness::Call,
+        is_pure: true,
         pure_symbols: &mut pure_symbols,
     };
 
@@ -48,20 +41,20 @@ pub fn purity<'a>(expr: CExpr<'a>) -> PurityMap {
 }
 
 struct Pure<'b> {
-    is_pure: Pureness,
+    is_pure: bool,
     pure_symbols: &'b mut PurityMap,
 }
 
 impl Pure<'_> {
-    fn is_pure(&mut self, symbol: &Symbol, expr: CExpr) -> Pureness {
+    fn is_pure(&mut self, symbol: &Symbol, expr: CExpr) -> bool {
         let mut visitor = Pure {
-            is_pure: Pureness::Call,
+            is_pure: true,
             pure_symbols: self.pure_symbols,
         };
         visitor.visit_expr(expr);
         let is_pure = visitor.is_pure;
-        if is_pure != Pureness::None {
-            self.pure_symbols.0.insert(symbol.clone(), is_pure);
+        if is_pure {
+            self.pure_symbols.0.insert(symbol.clone(), Pureness::Call);
         }
         is_pure
     }
@@ -71,7 +64,7 @@ impl Pure<'_> {
             Pattern::Ident(id) => {
                 self.pure_symbols.0.insert(id.name.clone(), Pureness::Load);
             }
-            Pattern::Record { fields, .. } => {
+            Pattern::Record(fields) => {
                 for field in fields {
                     self.pure_symbols.0.insert(
                         field.1.as_ref().unwrap_or(&field.0.name).clone(),
@@ -101,11 +94,11 @@ impl<'l, 'expr> Visitor<'l, 'expr> for Pure<'_> {
                     if self.pure_symbols.pure_call(&*id.name) || id.name.is_primitive() {
                         walk_expr(self, expr);
                     } else {
-                        self.is_pure = Pureness::None;
+                        self.is_pure = false;
                     }
                 }
                 _ => {
-                    self.is_pure = Pureness::None;
+                    self.is_pure = false;
                 }
             },
 
@@ -114,7 +107,7 @@ impl<'l, 'expr> Visitor<'l, 'expr> for Pure<'_> {
                     && !id.name.is_primitive()
                     && !id.name.is_global()
                 {
-                    self.is_pure.merge(Pureness::Load);
+                    self.is_pure = false;
                 }
             }
 
@@ -130,8 +123,7 @@ impl<'l, 'expr> Visitor<'l, 'expr> for Pure<'_> {
                         }
                     }
                     Named::Expr(expr) => {
-                        let is_pure = self.is_pure(&bind.name.name, expr);
-                        self.is_pure.merge(is_pure);
+                        self.is_pure &= self.is_pure(&bind.name.name, expr);
                     }
                 }
                 self.visit_expr(expr);
@@ -140,13 +132,13 @@ impl<'l, 'expr> Visitor<'l, 'expr> for Pure<'_> {
             Expr::Match(scrutinee, alts) => {
                 let is_pure = self.is_pure;
 
-                self.is_pure = Pureness::Call;
+                self.is_pure = true;
                 self.visit_expr(scrutinee);
                 let scrutinee_is_pure = self.is_pure;
 
-                self.is_pure.merge(is_pure);
+                self.is_pure &= is_pure;
 
-                if scrutinee_is_pure != Pureness::None {
+                if scrutinee_is_pure {
                     for alt in alts {
                         self.mark_pure(&alt.pattern);
                     }
@@ -164,30 +156,5 @@ impl<'l, 'expr> Visitor<'l, 'expr> for Pure<'_> {
     }
     fn detach_allocator(&self) -> Option<&'l Allocator<'l>> {
         None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use std::sync::Arc;
-
-    use base::symbol::Symbols;
-
-    use crate::core::interpreter::tests::parse_expr;
-
-    #[test]
-    fn pure_global() {
-        let mut symbols = Symbols::new();
-
-        let allocator = Arc::new(Allocator::new());
-
-        let expr = parse_expr(&mut symbols, &allocator, "let x = global in x");
-
-        assert_eq!(
-            purity(expr).0,
-            collect![(symbols.simple_symbol("x"), Pureness::Load)]
-        );
     }
 }
