@@ -43,8 +43,8 @@ impl api::VmType for Enum {
 }
 
 impl<'vm, 'value> api::Pushable<'vm> for Enum {
-    fn vm_push(self, context: &mut ActiveThread<'vm>) -> vm::Result<()> {
-        api::ser::Ser(self).vm_push(context)
+    fn push(self, context: &mut ActiveThread<'vm>) -> vm::Result<()> {
+        api::ser::Ser(self).push(context)
     }
 }
 
@@ -240,7 +240,7 @@ where
 
         // apply all generic parameters to the type
         let mut vec = AppVec::new();
-        vec.push(T::make_type(thread));
+        AppVec::push(&mut vec, T::make_type(thread));
         Type::app(ty, vec)
     }
 }
@@ -249,13 +249,13 @@ impl<'vm, T> Pushable<'vm> for GluonUser<T>
 where
     T: Pushable<'vm>,
 {
-    fn vm_push(self, ctx: &mut ActiveThread<'vm>) -> vm::Result<()> {
+    fn push(self, ctx: &mut ActiveThread<'vm>) -> vm::Result<()> {
         (record! {
             name => self.inner.name,
             age => self.inner.age,
             data => self.inner.data,
         })
-        .vm_push(ctx)
+        .push(ctx)
     }
 }
 

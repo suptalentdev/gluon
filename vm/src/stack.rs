@@ -10,9 +10,8 @@ use crate::{
     gc::{self, CloneUnrooted, CopyUnrooted, GcPtr, Trace},
     types::VmIndex,
     value::{ClosureData, DataStruct, ExternFunction, Value, ValueRepr},
-    Error, Result, Variants,
+    Variants,
 };
-use gc::Borrow;
 
 pub trait StackPrimitive {
     fn push_to(&self, stack: &mut Stack);
@@ -200,7 +199,6 @@ pub trait StackState: CopyUnrooted + Sized {
     fn from_state(state: &State) -> &Self;
     fn from_state_mut(state: &mut State) -> &mut Self;
     fn to_state(&self) -> gc::Borrow<State>;
-    fn max_stack_size(&self) -> VmIndex;
 }
 
 impl StackState for State {
@@ -212,14 +210,6 @@ impl StackState for State {
     }
     fn to_state(&self) -> gc::Borrow<State> {
         gc::Borrow::new(self)
-    }
-
-    fn max_stack_size(&self) -> VmIndex {
-        match self {
-            State::Unknown => 0,
-            State::Closure(closure) => closure.max_stack_size(),
-            State::Extern(ext) => ext.max_stack_size(),
-        }
     }
 }
 
@@ -239,9 +229,6 @@ impl StackState for ClosureState {
     fn to_state(&self) -> gc::Borrow<State> {
         construct_gc!(State::Closure(@ gc::Borrow::new(self)))
     }
-    fn max_stack_size(&self) -> VmIndex {
-        self.closure.function.max_stack_size
-    }
 }
 
 impl StackState for ExternState {
@@ -259,9 +246,6 @@ impl StackState for ExternState {
     }
     fn to_state(&self) -> gc::Borrow<State> {
         construct_gc!(State::Extern(@ gc::Borrow::new(self)))
-    }
-    fn max_stack_size(&self) -> VmIndex {
-        0
     }
 }
 
@@ -424,7 +408,6 @@ pub struct Stack {
     values: Vec<Value>,
     #[cfg_attr(feature = "serde_derive", serde(state))]
     frames: Vec<Frame<State>>,
-    max_stack_size: VmIndex,
 }
 
 unsafe impl Trace for Stack {
@@ -436,12 +419,7 @@ impl Stack {
         Stack {
             values: Vec::new(),
             frames: Vec::new(),
-            max_stack_size: VmIndex::MAX,
         }
-    }
-
-    pub fn set_max_stack_size(&mut self, max_stack_size: VmIndex) {
-        self.max_stack_size = max_stack_size;
     }
 
     fn assert_pop(&self, count: VmIndex) {
@@ -678,9 +656,9 @@ impl<'a: 'b, 'b> StackFrame<'b, State> {
         }
     }
 
-    pub fn new_frame(stack: &'b mut Stack, args: VmIndex, state: State) -> Result<StackFrame<'b>> {
-        let frame = unsafe { Self::add_new_frame(stack, args, &state, false)?.unrooted() };
-        Ok(StackFrame { stack, frame })
+    pub fn new_frame(stack: &'b mut Stack, args: VmIndex, state: State) -> StackFrame<'b> {
+        let frame = unsafe { Self::add_new_frame(stack, args, &state, false).unrooted() };
+        StackFrame { stack, frame }
     }
 }
 
@@ -847,7 +825,7 @@ where
         }
     }
 
-    pub(crate) fn enter_scope<T>(self, args: VmIndex, state: &T) -> Result<StackFrame<'b, T>>
+    pub(crate) fn enter_scope<T>(self, args: VmIndex, state: &T) -> StackFrame<'b, T>
     where
         T: StackState,
     {
@@ -859,16 +837,16 @@ where
         args: VmIndex,
         state: &T,
         excess: bool,
-    ) -> Result<StackFrame<'b, T>>
+    ) -> StackFrame<'b, T>
     where
         T: StackState,
     {
         let stack = self.stack;
-        let frame = unsafe { Self::add_new_frame(stack, args, state, excess)?.unrooted() };
-        Ok(StackFrame { stack, frame })
+        let frame = unsafe { Self::add_new_frame(stack, args, state, excess).unrooted() };
+        StackFrame { stack, frame }
     }
 
-    pub(crate) fn exit_scope(self) -> std::result::Result<StackFrame<'b, State>, &'b mut Stack>
+    pub(crate) fn exit_scope(self) -> Result<StackFrame<'b, State>, &'b mut Stack>
     where
         S: StackState,
     {
@@ -908,7 +886,7 @@ where
         args: VmIndex,
         state: &'gc T,
         excess: bool,
-    ) -> Result<Borrow<'gc, Frame<T>>>
+    ) -> gc::Borrow<'gc, Frame<T>>
     where
         T: StackState,
     {
@@ -933,18 +911,13 @@ where
                 );
             }
         }
-        // Before entering a function check that the stack cannot exceed `max_stack_size`
-        if stack.len() + frame.state.max_stack_size() > stack.max_stack_size {
-            return Err(Error::StackOverflow(stack.max_stack_size));
-        }
-
         // SAFETY The frame's gc pointers are scanned the `Stack::trace` since they are on
         // the stack
         unsafe {
             stack.frames.push(frame.to_state().clone_unrooted());
         }
         debug!("----> Store {} {:?}", stack.frames.len(), frame.to_state());
-        Ok(frame)
+        frame
     }
 }
 
@@ -1185,15 +1158,15 @@ mod tests {
         let _ = ::env_logger::try_init();
 
         let mut stack = Stack::new();
-        let mut frame = StackFrame::new_frame(&mut stack, 0, State::Unknown).unwrap();
+        let mut frame = StackFrame::new_frame(&mut stack, 0, State::Unknown);
         frame.push(Int(0));
         frame.push(Int(1));
 
-        frame = frame.enter_scope(2, &State::Unknown).unwrap();
+        frame = frame.enter_scope(2, &State::Unknown);
         frame.push(Int(2));
         frame.push(Int(3));
 
-        frame = frame.enter_scope(1, &State::Unknown).unwrap();
+        frame = frame.enter_scope(1, &State::Unknown);
         frame.push(Int(4));
         frame.push(Int(5));
         frame.push(Int(6));
@@ -1220,14 +1193,14 @@ mod tests {
 
         let mut stack = Stack::new();
         {
-            let mut frame = StackFrame::new_frame(&mut stack, 0, State::Unknown).unwrap();
+            let mut frame = StackFrame::new_frame(&mut stack, 0, State::Unknown);
             frame.push(Int(0));
             frame.push(Int(1));
-            let frame = frame.enter_scope(2, &*ExternState::new(&ext)).unwrap();
+            let frame = frame.enter_scope(2, &*ExternState::new(&ext));
             let _lock = frame.into_lock();
         }
         // Panic as it attempts to access past the lock
-        StackFrame::new_frame(&mut stack, 1, State::Unknown).unwrap();
+        StackFrame::new_frame(&mut stack, 1, State::Unknown);
 
         unsafe { gc.clear() }
     }
@@ -1242,9 +1215,9 @@ mod tests {
 
         let mut stack = Stack::new();
         {
-            let mut frame = StackFrame::new_frame(&mut stack, 0, State::Unknown).unwrap();
+            let mut frame = StackFrame::new_frame(&mut stack, 0, State::Unknown);
             frame.push(Int(0));
-            let frame = frame.enter_scope(1, &*ExternState::new(&ext)).unwrap();
+            let frame = frame.enter_scope(1, &*ExternState::new(&ext));
             let _lock = frame.into_lock();
         }
         // Panic as it attempts to pop a locked value
@@ -1262,14 +1235,14 @@ mod tests {
 
         let mut stack = Stack::new();
         let lock = {
-            let mut frame = StackFrame::new_frame(&mut stack, 0, State::Unknown).unwrap();
+            let mut frame = StackFrame::new_frame(&mut stack, 0, State::Unknown);
             frame.push(Int(0));
             frame.push(Int(1));
-            let frame = frame.enter_scope(2, &*ExternState::new(&ext)).unwrap();
+            let frame = frame.enter_scope(2, &*ExternState::new(&ext));
             frame.into_lock()
         };
         {
-            let mut frame = StackFrame::new_frame(&mut stack, 0, State::Unknown).unwrap();
+            let mut frame = StackFrame::new_frame(&mut stack, 0, State::Unknown);
             frame.push(Int(2));
             frame = frame.exit_scope().unwrap();
             frame.exit_scope().unwrap_err();
@@ -1286,12 +1259,12 @@ mod tests {
         let _ = ::env_logger::try_init();
 
         let mut stack = Stack::new();
-        StackFrame::new_frame(&mut stack, 0, State::Unknown).unwrap();
+        StackFrame::new_frame(&mut stack, 0, State::Unknown);
         let mut stack = StackFrame::<State>::current(&mut stack);
         stack.push(Int(0));
         stack.insert_slice(0, &[Int(2).into(), Int(1).into()]);
         assert_eq!(&stack[..], [Int(2).into(), Int(1).into(), Int(0).into()]);
-        stack = stack.enter_scope(2, &State::Unknown).unwrap();
+        stack = stack.enter_scope(2, &State::Unknown);
         stack.insert_slice(1, &[Int(10).into()]);
         assert_eq!(&stack[..], [Int(1).into(), Int(10).into(), Int(0).into()]);
         stack.insert_slice(1, &[]);

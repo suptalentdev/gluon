@@ -68,7 +68,7 @@ impl VmType for serde_json::Value {
 }
 
 impl<'vm> crate::api::Pushable<'vm> for serde_json::Value {
-    fn vm_push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
+    fn push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
         use serde_json::Value::*;
         let tag = match self {
             Null => {
@@ -76,29 +76,29 @@ impl<'vm> crate::api::Pushable<'vm> for serde_json::Value {
                 return Ok(());
             }
             Bool(b) => {
-                b.vm_push(context)?;
+                b.push(context)?;
                 1
             }
             Number(n) => {
                 if let Some(i) = n.as_i64() {
-                    i.vm_push(context)?;
+                    i.push(context)?;
                     2
                 } else if let Some(i) = n.as_u64() {
-                    i.vm_push(context)?;
+                    i.push(context)?;
                     2
                 } else if let Some(i) = n.as_f64() {
-                    i.vm_push(context)?;
+                    i.push(context)?;
                     3
                 } else {
                     return Err(format!("Unable to marshal serde_json::Number({})", n).into());
                 }
             }
             String(s) => {
-                s.vm_push(context)?;
+                s.push(context)?;
                 4
             }
             Array(a) => {
-                a.vm_push(context)?;
+                a.push(context)?;
                 5
             }
             Object(o) => {
@@ -223,8 +223,8 @@ impl VmType for Value {
 pub struct JsonValue(crate::vm::RootedValue<RootedThread>);
 
 impl<'vm> crate::api::Pushable<'vm> for JsonValue {
-    fn vm_push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
-        crate::api::Pushable::vm_push(self.0, context)
+    fn push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
+        crate::api::Pushable::push(self.0, context)
     }
 }
 
@@ -262,9 +262,7 @@ impl<'de> de::DeserializeState<'de, ActiveThread<'de>> for JsonValue {
                 T: crate::api::Pushable<'vm>,
             {
                 let context = &mut *self.0;
-                value
-                    .vm_push(context)
-                    .unwrap_or_else(|err| panic!("{}", err));
+                value.push(context).unwrap_or_else(|err| panic!("{}", err));
                 let thread = context.thread();
                 let value = context.pop();
                 JsonValue(thread.root_value((*value).clone()))

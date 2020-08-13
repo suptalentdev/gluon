@@ -164,7 +164,7 @@ impl<'vm, T> Pushable<'vm> for Ser<T>
 where
     T: Serialize,
 {
-    fn vm_push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
+    fn push(self, context: &mut ActiveThread<'vm>) -> Result<()> {
         let mut serializer = Serializer::new(context);
         self.0.serialize(&mut serializer)
     }
@@ -196,7 +196,7 @@ impl<'a, 't> Serializer<'a, 't> {
     where
         T: Pushable<'t>,
     {
-        value.vm_push(self.context)
+        value.push(self.context)
     }
 
     fn alloc(&mut self, tag: VmTag, values: VmIndex) -> Result<()> {
