@@ -1117,9 +1117,9 @@ where
     pub fn tuple<S, I>(symbols: &mut S, elems: I) -> T
     where
         S: ?Sized + IdentEnv<Ident = Id>,
-        T::SpannedId: From<(Id, Span<BytePos>)>,
+        T::SpannedId: From<Id>,
         I: IntoIterator<Item = T>,
-        T: From<(Type<Id, T>, Flags)> + HasSpan,
+        T: From<(Type<Id, T>, Flags)>,
     {
         T::from(Type::tuple_(symbols, elems))
     }
@@ -1127,9 +1127,9 @@ where
     pub fn tuple_<S, I>(symbols: &mut S, elems: I) -> Type<Id, T>
     where
         S: ?Sized + IdentEnv<Ident = Id>,
-        T::SpannedId: From<(Id, Span<BytePos>)>,
+        T::SpannedId: From<Id>,
         I: IntoIterator<Item = T>,
-        T: From<(Type<Id, T>, Flags)> + HasSpan,
+        T: From<(Type<Id, T>, Flags)>,
     {
         NullInterner.tuple_(symbols, elems)
     }
@@ -3230,7 +3230,7 @@ where
     type Context = NullInterner;
 
     fn context(&mut self) -> &mut Self::Context {
-        &mut NullInterner
+        NullInterner::new()
     }
 
     fn visit(&mut self, typ: &T) -> Option<T>
@@ -3583,9 +3583,8 @@ where
     fn tuple<S, I>(&mut self, symbols: &mut S, elems: I) -> T
     where
         S: ?Sized + IdentEnv<Ident = Id>,
-        T::SpannedId: From<(Id, Span<BytePos>)>,
+        T::SpannedId: From<Id>,
         I: IntoIterator<Item = T>,
-        T: HasSpan,
     {
         let t = self.tuple_(symbols, elems);
         self.intern(t)
@@ -3594,13 +3593,12 @@ where
     fn tuple_<S, I>(&mut self, symbols: &mut S, elems: I) -> Type<Id, T>
     where
         S: ?Sized + IdentEnv<Ident = Id>,
-        T::SpannedId: From<(Id, Span<BytePos>)>,
-        T: HasSpan,
+        T::SpannedId: From<Id>,
         I: IntoIterator<Item = T>,
     {
         let empty_row = self.empty_row();
         let elems = self.intern_fields(elems.into_iter().enumerate().map(|(i, typ)| Field {
-            name: (symbols.from_str(&format!("_{}", i)), typ.span()).into(),
+            name: symbols.from_str(&format!("_{}", i)).into(),
             typ,
         }));
         Type::Record(self.extend_row(elems, empty_row))
@@ -3818,13 +3816,15 @@ where
 
 pub type SharedInterner<Id, T> = TypeCache<Id, T>;
 
-pub struct NullInternerInner;
-// Workaround since &mut NullInterner does not get promoted to a `&'static mut NullInterner` but
-// `&mut []` does
-pub type NullInterner = [NullInternerInner; 0];
+#[derive(Default)]
+pub struct NullInterner;
 
-#[allow(non_upper_case_globals)]
-pub const NullInterner: NullInterner = [];
+impl NullInterner {
+    pub fn new() -> &'static mut NullInterner {
+        // SAFETY NullInterner is zero-sized
+        unsafe { &mut *(&mut NullInterner as *mut _) }
+    }
+}
 
 impl<Id, T> TypeContext<Id, T> for NullInterner
 where
@@ -4269,7 +4269,7 @@ where
     type Context = NullInterner;
 
     fn context(&mut self) -> &mut Self::Context {
-        &mut NullInterner
+        NullInterner::new()
     }
 
     fn visit(&mut self, typ: &T) -> Option<T>
@@ -4306,7 +4306,7 @@ where
     type Context = NullInterner;
 
     fn context(&mut self) -> &mut Self::Context {
-        &mut NullInterner
+        NullInterner::new()
     }
 
     fn visit(&mut self, typ: &T) -> Option<T>

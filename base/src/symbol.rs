@@ -9,10 +9,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::{
-    ast::{DisplayEnv, IdentEnv},
-    pos::{BytePos, Span},
-};
+use crate::ast::{DisplayEnv, IdentEnv};
 
 // FIXME Don't have a double indirection (Arc + String)
 /// A symbol uniquely identifies something regardless of its name and which module it originated
@@ -161,12 +158,6 @@ impl Hash for Symbol {
 impl From<String> for Symbol {
     fn from(name: String) -> Symbol {
         Symbol::from(&*name)
-    }
-}
-
-impl From<(Symbol, Span<BytePos>)> for Symbol {
-    fn from((name, _): (Symbol, Span<BytePos>)) -> Symbol {
-        name
     }
 }
 
