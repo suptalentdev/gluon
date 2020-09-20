@@ -40,8 +40,8 @@ fn parallel_() -> Result<(), Error> {
         let expr = r#"
         let { send } = import! std.channel
         let f sender =
-            let _ = send sender 1
-            let _ = send sender 2
+            send sender 1
+            send sender 2
             ()
         f
         "#;
@@ -59,10 +59,9 @@ fn parallel_() -> Result<(), Error> {
         let { recv } = import! std.channel
 
         let f receiver =
-            let _ =
-                match recv receiver with
-                | Ok x -> assert (x == 1)
-                | Err _ -> assert False
+            match recv receiver with
+            | Ok x -> assert (x == 1)
+            | Err _ -> assert False
             match recv receiver with
             | Ok x -> assert (x == 2)
             | Err _ -> assert False

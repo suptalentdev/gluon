@@ -967,7 +967,7 @@ let show : Show a -> Show (List a) = \d ->
     }
 let list@{ } = { show }
 
-let _ = list.show string_show
+list.show string_show
 list.show int_show
 "#;
     let result = support::typecheck(text);
@@ -997,7 +997,7 @@ let semigroup : Semigroup (List a) =
 
 let { append } = semigroup
 
-let _ = append (Cons 1 Nil) Nil
+append (Cons 1 Nil) Nil
 append (Cons "" Nil) Nil
 "#;
     let result = support::typecheck(text);
