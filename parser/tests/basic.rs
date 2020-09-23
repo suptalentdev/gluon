@@ -683,15 +683,13 @@ test
     mk_ast_arena!(arena);
     assert_eq!(
         *e.expr(),
-        no_loc(Expr::Do(arena.alloc(Do {
-            id: None,
-            bound: arena.alloc(Spanned {
+        no_loc(Expr::Block(arena.alloc_extend(vec![
+            Spanned {
                 span: Span::new(BytePos::from(0), BytePos::from(0)),
                 value: Expr::Projection(arena.alloc(id("test")), intern(""), Type::hole()),
-            }),
-            body: arena.alloc(id("test")),
-            flat_map_id: None,
-        })))
+            },
+            id("test"),
+        ])))
     );
 }
 
@@ -742,6 +740,38 @@ fn quote_in_identifier() {
         app(arena, id("f'"), vec![int(1), int(2)]),
     );
     assert_eq!(*e.expr(), a);
+}
+
+// Test that this is `rec let x = 1 in {{ a; b }}` let not `{{ (let x = 1 in a) ; b }}`
+#[test]
+fn block_open_after_let_in() {
+    let _ = ::env_logger::try_init();
+    let text = r#"
+        let x = 1
+        a
+        b
+        "#;
+    let e = parse_zero_index!(text);
+    match e.expr().value {
+        Expr::LetBindings(..) => (),
+        _ => panic!("{:?}", e),
+    }
+}
+
+#[test]
+fn block_open_after_explicit_let_in() {
+    let _ = ::env_logger::try_init();
+    let text = r#"
+        let x = 1
+        in
+        a
+        b
+        "#;
+    let e = parse_zero_index!(text);
+    match e.expr().value {
+        Expr::LetBindings(..) => (),
+        _ => panic!("{:?}", e),
+    }
 }
 
 #[test]

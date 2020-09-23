@@ -25,7 +25,7 @@ let thread = spawn (\_ ->
         let _ = send sender 1
         ()
     )
-let _ = resume thread
+resume thread
 
 let tests : TestEff r () =
     seq assert_eq (recv receiver) (Ok 0)

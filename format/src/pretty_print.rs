@@ -16,7 +16,7 @@ use base::{
     metadata::Attribute,
     pos::{self, BytePos, HasSpan, Span, Spanned},
     source,
-    types::{self, ArgType, AsId, Prec, Type},
+    types::{self, ArgType, AsId,Prec, Type},
 };
 
 const INDENT: isize = 4;
@@ -478,29 +478,24 @@ where
                 ref bound,
                 ref body,
                 ..
-            }) => match id {
-                Some(pattern) => {
-                    let from = chain![
+            }) => {
+                let from = match id {
+                    Some(pattern) => chain![
                         arena,
                         "do",
                         self.space_before(pattern.span.start()),
                         self.pretty_pattern(pattern),
                         self.space_after(pattern.span.end()),
                         "="
-                    ];
-                    chain![
-                        arena,
-                        self.hang(from, (self.space_before(bound.span.start()), true), bound),
-                        self.pretty_expr_(bound.span.end(), body)
-                    ]
-                }
-
-                None => chain![
+                    ],
+                    None => arena.text("seq"),
+                };
+                chain![
                     arena,
-                    self.pretty_expr_(bound.span.start(), bound),
+                    self.hang(from, (self.space_before(bound.span.start()), true), bound),
                     self.pretty_expr_(bound.span.end(), body)
-                ],
-            },
+                ]
+            }
             Expr::MacroExpansion { ref original, .. } => {
                 return self.pretty_expr_(previous_end, original);
             }

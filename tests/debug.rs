@@ -1,7 +1,5 @@
 #[macro_use]
 extern crate collect_mac;
-#[macro_use]
-extern crate pretty_assertions;
 
 use std::{
     collections::BTreeMap,
@@ -147,7 +145,7 @@ fn line_hook_after_call() {
 
     let expr = r#"
         let id x = x
-        let _ = id 0
+        id 0
         1
     "#;
 
@@ -247,7 +245,7 @@ fn read_variables() {
         let y2 = ""
         ()
 
-    let _ = ()
+    ()
     let z = 1.0
     1
     "#;
@@ -283,7 +281,6 @@ fn read_variables() {
                 vec![
                     ("x".to_string(), Type::int()),
                     ("y".to_string(), Type::unit()),
-                    ("_".to_string(), Type::unit()),
                 ],
             ),
             (
@@ -291,7 +288,6 @@ fn read_variables() {
                 vec![
                     ("x".to_string(), Type::int()),
                     ("y".to_string(), Type::unit()),
-                    ("_".to_string(), Type::unit()),
                     ("z".to_string(), Type::float()),
                 ],
             ),
@@ -384,7 +380,7 @@ fn source_name() {
         let y2 = ""
         ()
 
-    let _ = ()
+    ()
     let z = { x }
     1
     "#;

@@ -135,8 +135,8 @@ let f ?eq l r: [a -> a -> Bool] -> a -> a -> Bool = eq l r
 let eq_int l r : Int -> Int -> Bool = True
 #[implicit]
 let eq_string l r : String -> String -> Bool = True
-let _ = f 1 2
-let _ = f "" ""
+f 1 2
+f "" ""
 ()
 "#;
     let result = support::typecheck(text);
@@ -194,8 +194,8 @@ let eq_string @ { ? } =
     #[implicit]
     let eq l r : String -> String -> Bool = True
     { eq }
-let _ = f 1 2
-let _ = f "" ""
+f 1 2
+f "" ""
 ()
 "#;
     let result = support::typecheck(text);
@@ -348,7 +348,7 @@ type Test a = | Test a
 let f ?x y : [Test a] -> () -> Test a = x
 let g ?x y : [Test a] -> a -> Test a = f ()
 let i = Test 1
-let _ = g 2
+g 2
 ()
 "#;
     let (expr, result) = support::typecheck_expr(text);
@@ -522,6 +522,7 @@ let applicative : Applicative Test = {
 }
 
 \_ -> wrap 123
+()
 "#;
     let (_expr, result) = support::typecheck_expr(text);
     assert_err!(result, TypeError::UnableToResolveImplicit(..));
@@ -711,7 +712,7 @@ let put value : s -> State s () = any ()
 
 let get : State s s = any ()
 
-let _ = (put 1 *> get)
+(put 1 *> get)
 (put "hello" *> get)
 "#;
     let result = support::typecheck(text);
